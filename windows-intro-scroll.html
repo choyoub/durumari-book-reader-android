@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>두루마리 인트로</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+
+    .durumari-intro {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      color: white;
+      background: radial-gradient(circle at 50% 38%, #19324a 0, #0d1b2a 58%, #07111c 100%);
+      font-family: "Malgun Gothic", sans-serif;
+    }
+
+    .durumari-intro::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      opacity: .13;
+      background-image: repeating-linear-gradient(115deg, transparent 0 4px, rgba(255,255,255,.035) 5px, transparent 6px 11px);
+    }
+
+    .intro-container {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+    }
+
+    .intro-visual {
+      position: relative;
+      top: -18px;
+      width: min(76vw, 340px);
+      height: min(56vh, 455px);
+      min-height: 380px;
+      filter: drop-shadow(0 22px 25px rgba(0,0,0,.28));
+    }
+
+    .scroll-shadow {
+      position: absolute;
+      z-index: 0;
+      left: 15%;
+      right: 15%;
+      bottom: 4%;
+      height: 8%;
+      border-radius: 50%;
+      background: rgba(0,0,0,.38);
+      filter: blur(18px);
+      opacity: 0;
+      animation: introShadow 1s ease .25s forwards;
+    }
+
+    .scroll-paper {
+      position: absolute;
+      z-index: 2;
+      top: 8%;
+      left: 18%;
+      width: 64%;
+      height: 0;
+      overflow: hidden;
+      border: 1px solid rgba(111,77,35,.22);
+      background: #ead9af;
+      box-shadow: inset 14px 0 22px rgba(119,79,29,.09), inset -14px 0 22px rgba(119,79,29,.09), 0 8px 18px rgba(0,0,0,.24);
+      animation: unrollPaper .95s cubic-bezier(.22,1,.36,1) .2s forwards;
+    }
+
+    .scroll-paper::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      opacity: .72;
+      background: radial-gradient(ellipse at 15% 8%, rgba(255,255,255,.55), transparent 30%), radial-gradient(circle at 83% 72%, rgba(126,78,25,.11), transparent 25%), repeating-linear-gradient(2deg, rgba(95,61,23,.035) 0 1px, transparent 1px 5px);
+      mix-blend-mode: multiply;
+    }
+
+    .scroll-paper::after {
+      content: "";
+      position: absolute;
+      inset: 5px;
+      border: 1px solid rgba(111,76,31,.13);
+      box-shadow: inset 0 0 18px rgba(83,52,18,.1);
+    }
+
+    .paper-fiber {
+      position: absolute;
+      inset: 0;
+      opacity: .24;
+      background: repeating-linear-gradient(87deg, transparent 0 9px, rgba(88,56,21,.12) 10px, transparent 11px 19px);
+    }
+
+    .calligraphy {
+      position: absolute;
+      z-index: 2;
+      top: 32px;
+      left: 50%;
+      width: max-content;
+      max-width: 94%;
+      height: 245px;
+      overflow: hidden;
+      color: #221810;
+      writing-mode: vertical-rl;
+      text-orientation: upright;
+      font-family: "MaruBuri", "NanumMyeongjo", "Batang", serif;
+      font-size: clamp(11px, 3vw, 13px);
+      font-weight: 700;
+      line-height: 1.55;
+      letter-spacing: .07em;
+      opacity: .9;
+      filter: blur(.18px);
+      text-shadow: .25px .4px rgba(38,18,6,.38);
+      transform: translateX(-50%);
+    }
+
+    .seal {
+      position: absolute;
+      z-index: 3;
+      left: 13%;
+      bottom: 12%;
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      color: #8b261d;
+      border: 2px solid rgba(139,38,29,.75);
+      font: 700 11px/1 "Batang", serif;
+      transform: rotate(-5deg);
+      opacity: 0;
+      animation: sealStamp .22s cubic-bezier(.2,1.6,.4,1) 1.15s forwards;
+    }
+
+    .scroll-roller {
+      position: absolute;
+      z-index: 5;
+      top: calc(8% - 13px);
+      left: 8%;
+      width: 84%;
+      height: 26px;
+      display: grid;
+      grid-template-columns: 9% 82% 9%;
+      align-items: center;
+    }
+
+    .scroll-roller.bottom {
+      animation: lowerRoller .95s cubic-bezier(.22,1,.36,1) .2s forwards;
+    }
+
+    .scroll-roller b {
+      display: block;
+      height: 20px;
+      border: 1px solid #241307;
+      border-radius: 5px;
+      background: linear-gradient(#9c7444 0, #4b2c13 18%, #75491f 48%, #3a210e 78%, #9b7342 100%);
+      box-shadow: inset 0 1px rgba(255,225,166,.5), 0 4px 7px rgba(0,0,0,.34);
+    }
+
+    .scroll-roller i {
+      position: relative;
+      display: block;
+      height: 10px;
+      border: 1px solid #321d0c;
+      background: linear-gradient(#b78b50, #583516);
+      box-shadow: 0 3px 5px rgba(0,0,0,.3);
+    }
+
+    .scroll-roller i:first-child { border-radius: 10px 2px 2px 10px; }
+    .scroll-roller i:last-child { border-radius: 2px 10px 10px 2px; }
+
+    .scroll-roller i::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      width: 13px;
+      height: 13px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, #c49a60, #4a2b12 68%);
+      transform: translateY(-50%);
+    }
+
+    .scroll-roller i:first-child::after { left: -7px; }
+    .scroll-roller i:last-child::after { right: -7px; }
+
+    .scroll-cord {
+      position: absolute;
+      z-index: 1;
+      top: 8%;
+      right: 7%;
+      width: 2px;
+      height: 0;
+      background: linear-gradient(#a9834d, #4b2f18);
+      animation: cordDrop .7s ease 1s forwards;
+    }
+
+    .scroll-cord::after {
+      content: "";
+      position: absolute;
+      bottom: -22px;
+      left: -5px;
+      width: 12px;
+      height: 24px;
+      background: linear-gradient(90deg, #56351a, #b68d52, #4d2e16);
+      clip-path: polygon(25% 0,75% 0,100% 100%,50% 82%,0 100%);
+    }
+
+    .intro-title {
+      margin: 0;
+      padding-left: .25em;
+      color: white;
+      font: 700 26px "NanumMyeongjo", "Batang", serif;
+      letter-spacing: .25em;
+      text-align: center;
+    }
+
+    .intro-subtitle {
+      margin: 8px 0 0;
+      color: rgba(255,255,255,.5);
+      font: 14px "NanumMyeongjo", "Batang", serif;
+      text-align: center;
+    }
+
+    @keyframes introShadow { to { opacity: .75; } }
+    @keyframes unrollPaper { from { height: 0; } to { height: 84%; } }
+    @keyframes lowerRoller { from { top: calc(8% - 13px); } to { top: calc(92% - 13px); } }
+    @keyframes sealStamp { from { opacity: 0; transform: scale(1.8) rotate(-5deg); } to { opacity: .76; transform: scale(1) rotate(-5deg); } }
+    @keyframes cordDrop { to { height: 44px; } }
+
+    @media (prefers-reduced-motion: reduce) {
+      .scroll-paper { height: 84%; animation: none; }
+      .scroll-roller.bottom { top: calc(92% - 13px); animation: none; }
+      .seal { opacity: .76; animation: none; }
+      .scroll-cord { height: 44px; animation: none; }
+    }
+  </style>
+</head>
+<body>
+  <section class="durumari-intro" aria-label="두루마리 앱 시작 화면">
+    <div class="intro-container">
+      <div class="intro-visual">
+        <div class="scroll-shadow"></div>
+        <div class="scroll-roller top"><i></i><b></b><i></i></div>
+        <div class="scroll-paper">
+          <div class="paper-fiber"></div>
+          <div class="calligraphy">나랏말싸미 듕귁에 달아 문자와로 서르 사맛디 아니할쎄 이런 젼차로 어린 백셩이 니르고져 홀 배 이셔도 마참내 제 뜨들 시러 펴디 못할 노미 하니라 내 이랄 위하야 어엿비 너겨 새로 스믈여듧 자랄 맹가노니 사람마다 해어 수비 니겨 날로 쓰메 편안케 하고져 할 따라미니라</div>
+          <div class="seal">훈<br>민</div>
+        </div>
+        <div class="scroll-roller bottom"><i></i><b></b><i></i></div>
+        <div class="scroll-cord"></div>
+      </div>
+      <div>
+        <h1 class="intro-title">두루마리</h1>
+        <p class="intro-subtitle">나만의 문서 뷰어</p>
+      </div>
+    </div>
+  </section>
+</body>
+</html>
