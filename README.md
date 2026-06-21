@@ -1,5 +1,9 @@
 # 두루마리 (Durumari) - Android Book Reader
 
+<p align="center">
+  <img src="./assets/screenshot.jpg" alt="Durumari Screenshot" width="300" />
+</p>
+
 React Native (Expo)와 WebView 기술을 기반으로 개발된 안드로이드용 텍스트 및 EPUB 전자책 리더 앱입니다.
 
 ## 주요 기능
