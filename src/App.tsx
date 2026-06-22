@@ -279,30 +279,12 @@ export default function App() {
     // --- Build DOM ---
     const virtualPage = document.createElement("div");
     virtualPage.className = "virtual-page-layer";
-    virtualPage.style.transformOrigin = isNext ? "left center" : "right center";
-
+    
     // Front Face (clone of current view)
     const frontFace = area.cloneNode(true) as HTMLDivElement;
     frontFace.className = "clone-face front";
-    
-    // Back Face (blank paper — visible through the curl gap)
-    const backFace = document.createElement("div");
-    backFace.className = "clone-face back";
-
     virtualPage.appendChild(frontFace);
-    virtualPage.appendChild(backFace);
-    
-    // Curl shadow strip on front face leading edge (adds depth)
-    const curlShadow = document.createElement("div");
-    curlShadow.style.cssText = `position:absolute;top:0;${isNext ? "right" : "left"}:0;width:60px;height:100%;pointer-events:none;z-index:3;background:linear-gradient(${isNext ? "to left" : "to right"},rgba(0,0,0,0.15),transparent)`;
-    frontFace.appendChild(curlShadow);
-    
-    area.parentElement?.appendChild(virtualPage);
-    
-    // Navigate underlying page immediately
-    if (isNext) void navRef.current?.next();
-    else void navRef.current?.previous();
-    
+
     // --- Animations ---
     let animation: Animation;
 
@@ -321,6 +303,7 @@ export default function App() {
       
       area.parentElement?.appendChild(virtualPage);
       
+      // Navigate underlying page immediately
       if (isNext) void navRef.current?.next();
       else void navRef.current?.previous();
       
@@ -354,6 +337,7 @@ export default function App() {
       virtualPage.style.zIndex = "10";
       area.parentElement?.appendChild(virtualPage);
       
+      // Navigate underlying page immediately
       if (isNext) void navRef.current?.next();
       else void navRef.current?.previous();
       
@@ -1190,6 +1174,23 @@ function SettingsModal({ initialSettings, onConfirm, onClose, onResetSettings, o
     </div>
 
     <div className="settings-scroll">
+      <h3>📖 읽기 설정</h3>
+      <div className="setting-line"><span>서체</span><select value={settings.fontFamily} onChange={(e) => onChange((s) => ({ ...s, fontFamily: e.target.value }))}>{READER_FONTS.map((font) => <option key={font.value} value={font.value} style={{ fontFamily: font.value }}>{font.label}</option>)}</select></div>
+      {range("글자 크기", "fontSize", 10, 36, 1, "pt")}
+      <div className="setting-line"><span>글자 굵기</span><div className="toggle-pair"><button className={!settings.isBold ? "selected" : ""} onClick={() => onChange((s) => ({ ...s, isBold: false }))}>일반</button><button className={settings.isBold ? "selected" : ""} onClick={() => onChange((s) => ({ ...s, isBold: true }))}>굵게</button></div></div>
+      {range("줄 간격", "lineHeight", 1, 2.5, .1)}
+      {range("자 간", "letterSpacing", -2, 5, 1)}
+      
+      <hr />
+      
+      <div className="section-title"><h3>📏 여백 설정</h3><label><input type="checkbox" checked={settings.paddingLinked} onChange={(e) => onChange((s) => ({ ...s, paddingLinked: e.target.checked, paddingRight: e.target.checked ? s.paddingLeft : s.paddingRight }))} /> 좌우 여백 동일하게 조절</label></div>
+      {range("위 여백", "paddingTop", 0, 120, 5, "px")}
+      {range("아래 여백", "paddingBottom", 0, 120, 5, "px")}
+      {range("왼쪽 여백", "paddingLeft", 0, 150, 5, "px")}
+      {range("오른쪽 여백", "paddingRight", 0, 150, 5, "px")}
+
+      <hr />
+
       <h3>📖 뷰어 페이지 이동 방식</h3>
       <div className="page-turn-options">
         <label><input type="checkbox" checked={settings.pageTurnTouch} onChange={(e) => onChange((s) => ({ ...s, pageTurnTouch: e.target.checked }))} /> 터치</label>
@@ -1210,23 +1211,6 @@ function SettingsModal({ initialSettings, onConfirm, onClose, onResetSettings, o
         <label><input type="radio" name="pageTurnStyle" value="curl" checked={settings.pageTurnStyle === "curl"} onChange={() => onChange((s) => ({ ...s, pageTurnStyle: "curl" }))} /> 책장 넘김</label>
         <label><input type="radio" name="pageTurnStyle" value="slide" checked={settings.pageTurnStyle === "slide"} onChange={() => onChange((s) => ({ ...s, pageTurnStyle: "slide" }))} /> 슬라이드</label>
       </div>
-
-      <hr />
-
-      <h3>📖 읽기 설정</h3>
-      <div className="setting-line"><span>서체</span><select value={settings.fontFamily} onChange={(e) => onChange((s) => ({ ...s, fontFamily: e.target.value }))}>{READER_FONTS.map((font) => <option key={font.value} value={font.value} style={{ fontFamily: font.value }}>{font.label}</option>)}</select></div>
-      {range("글자 크기", "fontSize", 10, 36, 1, "pt")}
-      <div className="setting-line"><span>글자 굵기</span><div className="toggle-pair"><button className={!settings.isBold ? "selected" : ""} onClick={() => onChange((s) => ({ ...s, isBold: false }))}>일반</button><button className={settings.isBold ? "selected" : ""} onClick={() => onChange((s) => ({ ...s, isBold: true }))}>굵게</button></div></div>
-      {range("줄 간격", "lineHeight", 1, 2.5, .1)}
-      {range("자 간", "letterSpacing", -2, 5, 1)}
-      
-      <hr />
-      
-      <div className="section-title"><h3>📏 여백 설정</h3><label><input type="checkbox" checked={settings.paddingLinked} onChange={(e) => onChange((s) => ({ ...s, paddingLinked: e.target.checked, paddingRight: e.target.checked ? s.paddingLeft : s.paddingRight }))} /> 좌우 여백 동일하게 조절</label></div>
-      {range("위 여백", "paddingTop", 0, 120, 5, "px")}
-      {range("아래 여백", "paddingBottom", 0, 120, 5, "px")}
-      {range("왼쪽 여백", "paddingLeft", 0, 150, 5, "px")}
-      {range("오른쪽 여백", "paddingRight", 0, 150, 5, "px")}
       
       <hr />
       
