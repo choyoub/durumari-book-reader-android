@@ -65,14 +65,16 @@ tr.status-completed td, tr.status-completed .book-name { color: #2e7d32; }
 .theme-dark tr.status-completed td, .theme-dark tr.status-completed .book-name { color: #81c784; }
 .book-name { font-weight:600; cursor:pointer; }
 .accent-text { color:var(--accent); font-weight:600; }
-.reader-screen { width:100%; height:100%; position:relative; display:flex; align-items:center; justify-content:center; background:var(--bg-outer); overflow:hidden; container-type:size; touch-action:none; perspective:1400px; }
+.reader-screen { width:100%; height:100%; position:relative; display:flex; align-items:center; justify-content:center; background:var(--bg-outer); overflow:hidden; container-type:size; touch-action:none; perspective:2200px; }
 /* Fill the entire app viewport; native safe-area padding is applied outside the WebView. */
-.reader-area { width:100%; height:100%; flex:1 1 auto; position:relative; background:var(--bg); overflow:hidden; transform-style:preserve-3d; backface-visibility:hidden; will-change:transform,filter; }
-.virtual-page-layer { position:absolute; top:0; left:0; width:100%; height:100%; z-index:30; pointer-events:none; background:var(--bg); transform-style:preserve-3d; backface-visibility:hidden; overflow:hidden; }
-.virtual-page-layer::after { content:""; position:absolute; inset:0; z-index:31; pointer-events:none; opacity:1; }
-.virtual-page-layer.turn-next::after { background:linear-gradient(to right, rgba(0,0,0,0.02) 0%, transparent 70%, rgba(255,255,255,0.3) 95%, rgba(0,0,0,0.15) 100%); }
-.virtual-page-layer.turn-previous::after { background:linear-gradient(to left, rgba(0,0,0,0.02) 0%, transparent 70%, rgba(255,255,255,0.3) 95%, rgba(0,0,0,0.15) 100%); }
-.virtual-page-layer::before { content:""; position:absolute; inset:0; z-index:-1; background:var(--bg-outer); transform:translateZ(-1px); }
+.reader-area { width:100%; height:100%; flex:1 1 auto; position:relative; background:var(--bg); overflow:hidden; }
+.virtual-page-layer { position:absolute; top:0; left:0; width:100%; height:100%; z-index:30; pointer-events:none; transform-style:preserve-3d; will-change:transform; }
+.clone-face { position:absolute; top:0; left:0; width:100%; height:100%; backface-visibility:hidden; overflow:hidden; }
+.clone-face.front { z-index:2; background:var(--bg); }
+.clone-face.front::after { content:""; position:absolute; top:0; right:0; width:60px; height:100%; pointer-events:none; background:linear-gradient(to left, rgba(0,0,0,0.05), transparent); }
+.clone-face.back { transform:rotateY(180deg); background:color-mix(in srgb, var(--bg) 90%, black); }
+.clone-face.back::after { content:""; position:absolute; inset:0; pointer-events:none; background:linear-gradient(to right, rgba(0,0,0,0.08), transparent 40%); }
+.page-turn-shadow { position:absolute; top:0; left:0; width:100%; height:100%; z-index:29; pointer-events:none; opacity:0; }
 .reader-host { width: 100%; height: 100%; position: relative; background: transparent; }
 .reader-typography { word-break:keep-all; text-align:justify; }
 .text-page { width:100%; height:100%; margin:0; overflow:hidden; color:var(--text); white-space:pre-wrap; overflow-wrap:break-word; word-break:break-all; }

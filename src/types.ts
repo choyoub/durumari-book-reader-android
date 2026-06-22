@@ -41,7 +41,8 @@ export interface ReaderSettings {
   pageTurnTouch: boolean;
   pageTurnSwipe: boolean;
   pageTurnVolume: boolean;
-  pageTurnAnimation: boolean;
+  pageTurnFeedback: "none" | "vibration" | "sound";
+  pageTurnStyle: "none" | "curl" | "slide";
   hideCompleted: boolean;
   theme: "paper" | "light" | "dark" | "system";
   librarySort: SortConfig;
