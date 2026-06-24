@@ -6,6 +6,7 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 button, input, select { font: inherit; }
 button { cursor: pointer; color: inherit; }
 .app { --bg:#f2ead3; --bg-outer:#cfbe90; --text:#2a2a2a; --secondary:rgba(42,42,42,.5); --accent:#d35400; --card:#eae0c4; --border:#d5c5a0; --overlay:rgba(242,234,211,.38); position:relative; width:100%; height:100%; overflow:hidden; color:var(--text); background:var(--bg); font-size:13px; }
+.theme-paper { --bg:#f2ead3; --bg-outer:#cfbe90; --text:#2a2a2a; --secondary:rgba(42,42,42,.5); --accent:#d35400; --card:#eae0c4; --border:#d5c5a0; --overlay:rgba(242,234,211,.38); }
 .theme-light { --bg:#f8f4ed; --bg-outer:#e2dbcc; --text:#1a1a2e; --secondary:rgba(26,26,46,.5); --accent:#e65100; --card:#fff; --border:#e0d8c8; --overlay:rgba(255,255,255,.5); }
 .theme-dark { --bg:#121212; --bg-outer:#090909; --text:#e0e0e0; --secondary:rgba(224,224,224,.5); --accent:#ff9800; --card:#1e1e1e; --border:#2d2d2d; --overlay:rgba(0,0,0,.5); color-scheme:dark; }
 .theme-system { --bg:Canvas; --bg-outer:#e2dbcc; --text:CanvasText; --secondary:GrayText; --accent:#e65100; --card:Field; --border:ButtonBorder; --overlay:rgba(128,128,128,.35); }
@@ -84,10 +85,9 @@ tr.status-completed td, tr.status-completed .book-name { color: #2e7d32; }
 .reader-turn { position:absolute; z-index:10; border:0; background:transparent; opacity:0; cursor:default; -webkit-tap-highlight-color:transparent; }
 .reader-turn-top { top:0; left:0; width:100%; height:12%; }
 .reader-turn-bottom { bottom:0; left:0; width:100%; height:12%; }
-.reader-turn-left { top:12%; bottom:12%; left:0; width:32%; }
-.reader-turn-right { top:12%; bottom:12%; right:0; width:32%; }
-.reader-turn-center { top:12%; bottom:12%; left:32%; right:32%; }
-.reader-page-number { position:absolute; z-index:11; left:50%; bottom:20px; transform:translateX(-50%); opacity:.3; font-size:13px; pointer-events:none; }
+.reader-turn-left { top:12%; bottom:12%; left:0; width:50%; }
+.reader-turn-right { top:12%; bottom:12%; right:0; width:50%; }
+.reader-page-number { position:absolute; z-index:11; left:50%; bottom:8px; transform:translateX(-50%); opacity:.3; font-size:13px; pointer-events:none; }
 .overlay-blur, .overlay-solid { position:absolute; inset:0; z-index:20; background:var(--overlay); backdrop-filter:blur(3px); }
 .overlay-solid { background:rgba(0,0,0,.23); backdrop-filter:none; }
 .overlay-solid.subtle { background:rgba(0,0,0,.18); }

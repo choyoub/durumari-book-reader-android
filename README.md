@@ -58,11 +58,32 @@ npx expo start
 npx expo run:android
 ```
 
-## APK 빌드 생성
+## APK 빌드 생성 (Production)
 
-안드로이드용 APK를 빌드하려면 Expo EAS Build를 사용하거나 로컬에서 빌드할 수 있습니다.
+안드로이드용 릴리즈 APK를 로컬에서 완전히 수동으로 빌드하려면 웹앱을 먼저 빌드하고, 그 결과물을 모바일 에셋 폴더로 복사한 뒤 Gradle 빌드를 수행해야 합니다. 
 
-```bash
-cd mobile
-npx expo run:android --variant release
+아래 명령어는 Windows PowerShell 환경을 기준으로 모든 과정을 한 번에 수행하는 명령어입니다.
+
+```powershell
+# 1. 환경 변수 안전장치 (선택 사항이지만 권장)
+$env:NODE_ENV='production'
+
+# 2. 웹 뷰어 프로덕션 빌드
+npm run build
+
+# 3. 빌드된 웹 번들을 안드로이드 에셋(assets) 폴더로 복사
+Copy-Item -Path ".\dist\*" -Destination ".\mobile\android\app\src\main\assets\dist" -Recurse -Force
+
+# 4. 안드로이드 빌드 환경 변수 확인 (필요시 자신의 환경에 맞게 수정)
+$env:JAVA_HOME="C:\Program Files\Android\Android Studio\jbr"
+$env:ANDROID_HOME="C:\Users\자신의윈도우계정명\AppData\Local\Android\Sdk"
+
+# 5. 최종 릴리즈 APK 빌드
+.\mobile\android\gradlew.bat -p .\mobile\android :app:assembleRelease
 ```
+
+> **참고**: 빌드 중 네이티브 캐시 문제(`.cxx` 에러 등)가 발생할 경우 `.\mobile\android\app\.cxx` 폴더를 수동으로 삭제한 뒤 다시 시도하시면 됩니다.
+
+완성된 APK 파일은 다음 경로에 생성됩니다:
+`mobile\android\app\build\outputs\apk\release\app-release.apk`
+

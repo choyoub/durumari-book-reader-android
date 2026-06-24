@@ -219,39 +219,35 @@ export default function App() {
   const readerAreaRef = useRef<HTMLDivElement>(null);
   const pageTurnAnimatingRef = useRef(false);
   const pageTurnAnimationRef = useRef<Animation | null>(null);
+  const lastTurnTimeRef = useRef(0);
   const turnPage = useCallback((direction: "next" | "previous", origin?: "right" | "left" | "top" | "bottom") => {
     const area = readerAreaRef.current;
     if (!area) return false;
     
-    // Cancel any running animation immediately for rapid page turns
     if (pageTurnAnimatingRef.current) {
-      pageTurnAnimationRef.current?.cancel();
-      pageTurnAnimationRef.current = null;
-      pageTurnAnimatingRef.current = false;
-      area.parentElement?.querySelectorAll('.virtual-page-layer').forEach(el => el.remove());
-      area.style.position = "";
-      area.style.zIndex = "";
-      area.style.transform = "";
-      area.style.boxShadow = "";
+      return false; // 애니메이션 진행 중에는 추가 입력 무시
     }
     
+    const now = Date.now();
+    if (now - lastTurnTimeRef.current < (settings.pageTurnStyle === "none" ? 300 : 50)) {
+      return false; // 연속 딜레이 무시 (없음 300ms, 기타 50ms)
+    }
+    lastTurnTimeRef.current = now;
+    
     if (settings.pageTurnStyle === "none" || typeof area.animate !== "function") {
-      if (direction === "next") void navRef.current?.next();
-      else void navRef.current?.previous();
+      void (direction === "next" ? navRef.current?.next() : navRef.current?.previous());
       return true;
     }
     
     pageTurnAnimatingRef.current = true;
     const isNext = direction === "next";
     
-    // --- Curl clip-path generator ---
-    // Creates a polygon where the leading edge curves inward with a sine wave.
-    // Clipping the front face reveals the blank back face behind, simulating paper curl.
-    const makeCurlClip = (curl: number): string => {
+    const isCurrentPageSlidingOut = origin === "left" || origin === "top" || (!isNext && origin === undefined);
+
+    const makeCurlClip = (curl: number, isRightToLeft: boolean): string => {
       const N = 16;
       const pts: string[] = [];
-      if (isNext) {
-        // Curve the RIGHT edge (leading edge for next-page)
+      if (isRightToLeft) {
         pts.push("0% 0%");
         for (let i = 0; i <= N; i++) {
           const t = i / N;
@@ -260,7 +256,6 @@ export default function App() {
         }
         pts.push("0% 100%");
       } else {
-        // Curve the LEFT edge (leading edge for previous-page)
         for (let i = 0; i <= N; i++) {
           const t = i / N;
           const c = curl * Math.sin(t * Math.PI);
@@ -272,117 +267,169 @@ export default function App() {
       return `polygon(${pts.join(", ")})`;
     };
     
-    const flat = makeCurlClip(0);
-    const curlLight = makeCurlClip(5);
-    const curlMax = makeCurlClip(12);
-    
-    // --- Build DOM ---
     const virtualPage = document.createElement("div");
     virtualPage.className = "virtual-page-layer";
-    
-    // Front Face (clone of current view)
     const frontFace = area.cloneNode(true) as HTMLDivElement;
+    frontFace.style.opacity = "1";
+    frontFace.style.backgroundColor = "var(--bg)";
     frontFace.className = "clone-face front";
     virtualPage.appendChild(frontFace);
 
-    // --- Animations ---
-    let animation: Animation;
-
-    if (settings.pageTurnStyle === "curl") {
-      // CURL MODE (Old page on top, curling out)
-      virtualPage.style.transformOrigin = isNext ? "left center" : "right center";
-      virtualPage.style.zIndex = "30";
-      
-      const backFace = document.createElement("div");
-      backFace.className = "clone-face back";
-      virtualPage.appendChild(backFace);
-      
-      const curlShadow = document.createElement("div");
-      curlShadow.style.cssText = `position:absolute;top:0;${isNext ? "right" : "left"}:0;width:60px;height:100%;pointer-events:none;z-index:3;background:linear-gradient(${isNext ? "to left" : "to right"},rgba(0,0,0,0.15),transparent)`;
-      frontFace.appendChild(curlShadow);
-      
-      area.parentElement?.appendChild(virtualPage);
-      
-      // Navigate underlying page immediately
-      if (isNext) void navRef.current?.next();
-      else void navRef.current?.previous();
-      
-      const targetAngle = isNext ? -180 : 180;
-      animation = virtualPage.animate([
-        { offset: 0, transform: "rotateY(0deg)", easing: "cubic-bezier(0.15, 0.8, 0.3, 1)" },
-        { offset: 0.8, transform: `rotateY(${targetAngle * 0.88}deg)`, easing: "cubic-bezier(0.4, 0, 1, 1)" },
-        { offset: 1, transform: `rotateY(${targetAngle}deg)` }
-      ], { duration: 3000, fill: "forwards" });
-      
-      frontFace.animate([
-        { offset: 0, clipPath: flat },
-        { offset: 0.15, clipPath: curlLight },
-        { offset: 0.5, clipPath: curlMax },
-        { offset: 0.75, clipPath: curlLight },
-        { offset: 0.85, clipPath: flat },
-        { offset: 1, clipPath: flat }
-      ], { duration: 3000, fill: "forwards" });
-      
-      curlShadow.animate([
-        { offset: 0, opacity: "0" },
-        { offset: 0.2, opacity: "0.7" },
-        { offset: 0.5, opacity: "1" },
-        { offset: 0.75, opacity: "0.3" },
-        { offset: 0.85, opacity: "0" },
-        { offset: 1, opacity: "0" }
-      ], { duration: 3000, fill: "forwards" });
-      
-    } else {
-      // SLIDE MODE (Old page on bottom, New page slides IN over it)
+    // [사전 준비] DOM 업데이트 전에 현재 화면(이전 페이지)을 복제본으로 덮어 씌우기
+    if (settings.pageTurnStyle === "curl" && !isCurrentPageSlidingOut) {
       virtualPage.style.zIndex = "10";
       area.parentElement?.appendChild(virtualPage);
-      
-      // Navigate underlying page immediately
-      if (isNext) void navRef.current?.next();
-      else void navRef.current?.previous();
-      
+      area.style.opacity = "0"; // 새 페이지 렌더링 동안 숨김
+    } else if (settings.pageTurnStyle === "slide" && !isCurrentPageSlidingOut) {
+      virtualPage.style.zIndex = "10";
+      area.parentElement?.appendChild(virtualPage);
       area.style.position = "relative";
       area.style.zIndex = "20";
-      
-      let transformStart = "translateX(100%)";
-      if (origin === "left") transformStart = "translateX(-100%)";
-      else if (origin === "top") transformStart = "translateY(-100%)";
-      else if (origin === "bottom") transformStart = "translateY(100%)";
-      else if (origin === "right") transformStart = "translateX(100%)";
-      else transformStart = isNext ? "translateX(100%)" : "translateX(-100%)";
-
-      animation = area.animate([
-        { transform: transformStart, boxShadow: "0 0 30px rgba(0,0,0,0.3)" },
-        { transform: "translate(0, 0)", boxShadow: "0 0 30px rgba(0,0,0,0.3)" }
-      ], {
-        duration: 300,
-        easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
-        fill: "forwards"
-      });
+      const transformStart = origin === "bottom" ? "translateY(100%)" : "translateX(100%)";
+      area.style.transform = transformStart; // 새 페이지가 화면 밖에서 렌더링 되도록 함
+    } else if (isCurrentPageSlidingOut) {
+      // 이전 페이지 처리: 실제 화면이 렌더링 되기 전에 현재 화면(virtualPage)으로 덮어서 가림
+      virtualPage.style.zIndex = "30";
+      area.parentElement?.appendChild(virtualPage);
     }
 
-    pageTurnAnimationRef.current = animation;
-
-    void animation.finished.then(() => {
+    const cleanup = () => {
       virtualPage.remove();
-      if (settings.pageTurnStyle === "slide") {
-        area.style.position = "";
-        area.style.zIndex = "";
-        area.style.transform = "";
-        area.style.boxShadow = "";
-      }
-    }).catch(() => {
-      virtualPage.remove();
-      if (settings.pageTurnStyle === "slide") {
-        area.style.position = "";
-        area.style.zIndex = "";
-        area.style.transform = "";
-        area.style.boxShadow = "";
-      }
-    }).finally(() => {
+      area.style.position = "";
+      area.style.zIndex = "";
+      area.style.transform = "";
+      area.style.boxShadow = "";
+      area.style.opacity = "";
       pageTurnAnimationRef.current = null;
       pageTurnAnimatingRef.current = false;
-    });
+    };
+
+    const startAnimation = () => {
+      if (settings.pageTurnStyle === "curl") {
+        const isNextPage = !isCurrentPageSlidingOut;
+        
+        let flyingPage = virtualPage;
+        let oldPageBg: HTMLDivElement | null = null;
+        let myFrontFace = frontFace;
+
+        if (isNextPage) {
+          oldPageBg = virtualPage;
+          
+          flyingPage = document.createElement("div");
+          flyingPage.className = "virtual-page-layer";
+          myFrontFace = area.cloneNode(true) as HTMLDivElement; // DOM 업데이트 완료 후 새 페이지 복제!
+          myFrontFace.style.opacity = "1"; // 원본(area)의 opacity:0 을 상속받았으므로 1로 복구!
+          myFrontFace.style.backgroundColor = "var(--bg)"; // 책장 레이어 배경 불투명하게 처리
+          myFrontFace.className = "clone-face front";
+          flyingPage.appendChild(myFrontFace);
+        }
+
+        flyingPage.style.transformOrigin = "right center";
+        flyingPage.style.zIndex = "30";
+        flyingPage.style.perspective = "2000px";
+        
+        const backFace = document.createElement("div");
+        backFace.className = "clone-face back";
+        flyingPage.appendChild(backFace);
+        
+        const curlShadow = document.createElement("div");
+        curlShadow.style.cssText = `position:absolute;top:0;left:0;width:60px;height:100%;pointer-events:none;z-index:3;background:linear-gradient(to right,rgba(0,0,0,0.15),transparent)`;
+        myFrontFace.appendChild(curlShadow);
+        
+        area.parentElement?.appendChild(flyingPage);
+        
+        const targetAngle = isNextPage ? 0 : 100;
+        const startAngle = isNextPage ? 90 : 0;
+        
+        // 투명도(Opacity) 찰나 페이드 효과를 주어 갑툭튀 방지
+        const anim = flyingPage.animate(isNextPage ? [
+          { transform: `rotateY(${startAngle}deg)`, opacity: 0 },
+          { transform: `rotateY(85deg)`, opacity: 1, offset: 0.1 },
+          { transform: `rotateY(${targetAngle}deg)`, opacity: 1 }
+        ] : [
+          { transform: `rotateY(${startAngle}deg)`, opacity: 1 },
+          { transform: `rotateY(90deg)`, opacity: 1, offset: 0.8 },
+          { transform: `rotateY(${targetAngle}deg)`, opacity: 0 }
+        ], { duration: 400, easing: "cubic-bezier(0.25, 1, 0.5, 1)", fill: "forwards" });
+
+        const flat = makeCurlClip(0, false);
+        const curlLight = makeCurlClip(8, false);
+        const curlMax = makeCurlClip(18, false); // 90도 부근일 때 더 강한 휘어짐
+        
+        myFrontFace.animate(isNextPage ? [
+          { offset: 0, clipPath: curlMax },
+          { offset: 0.5, clipPath: curlLight },
+          { offset: 1, clipPath: flat }
+        ] : [
+          { offset: 0, clipPath: flat },
+          { offset: 0.5, clipPath: curlLight },
+          { offset: 1, clipPath: curlMax }
+        ], { duration: 400, fill: "forwards" });
+        
+        curlShadow.animate(isNextPage ? [
+          { offset: 0, opacity: "0.8" },
+          { offset: 0.5, opacity: "0.3" },
+          { offset: 1, opacity: "0" }
+        ] : [
+          { offset: 0, opacity: "0" },
+          { offset: 0.5, opacity: "0.3" },
+          { offset: 1, opacity: "0.8" }
+        ], { duration: 400, fill: "forwards" });
+
+        pageTurnAnimationRef.current = anim;
+        void anim.finished.then(() => {
+          oldPageBg?.remove();
+          if (isNextPage) flyingPage.remove();
+          area.style.opacity = "";
+          cleanup();
+        }).catch(() => {
+          oldPageBg?.remove();
+          if (isNextPage) flyingPage.remove();
+          area.style.opacity = "";
+          cleanup();
+        });
+      } else {
+        if (isCurrentPageSlidingOut) {
+          // virtualPage는 사전 준비 단계에서 이미 30번대 zIndex로 덮여있음
+          area.style.position = "relative";
+          area.style.zIndex = "10";
+          
+          let transformEnd = "translateX(100%)"; // Previous Page: Slide OUT to Right
+          if (origin === "top") transformEnd = "translateY(100%)"; // Slide OUT to Bottom
+
+          const anim = virtualPage.animate([
+            { transform: "translate(0, 0)", boxShadow: "-10px 0 30px rgba(0,0,0,0.1)" },
+            { transform: transformEnd, boxShadow: "-10px 0 30px rgba(0,0,0,0.1)" }
+          ], { duration: 400, easing: "cubic-bezier(0.25, 1, 0.5, 1)", fill: "forwards" });
+          
+          pageTurnAnimationRef.current = anim;
+          void anim.finished.then(cleanup).catch(cleanup);
+        } else {
+          const transformStart = origin === "bottom" ? "translateY(100%)" : "translateX(100%)";
+
+          const anim = area.animate([
+            { transform: transformStart, boxShadow: "0 0 30px rgba(0,0,0,0.3)" },
+            { transform: "translate(0, 0)", boxShadow: "0 0 30px rgba(0,0,0,0.3)" }
+          ], { duration: 400, easing: "cubic-bezier(0.25, 1, 0.5, 1)", fill: "forwards" });
+          
+          pageTurnAnimationRef.current = anim;
+          void anim.finished.then(cleanup).catch(cleanup);
+        }
+      }
+    };
+
+    const navResult = isNext ? navRef.current?.next() : navRef.current?.previous();
+    
+    const triggerAnimation = () => {
+      // React DOM 렌더링 지연(flush) 대기 후 애니메이션 시작
+      setTimeout(startAnimation, 30);
+    };
+
+    if (navResult instanceof Promise) {
+      void navResult.then(triggerAnimation).catch(triggerAnimation);
+    } else {
+      triggerAnimation();
+    }
 
     return true;
   }, [settings.pageTurnStyle]);
@@ -391,7 +438,8 @@ export default function App() {
   const readerSwipeHandlers = useSwipeGesture(useCallback((direction: SwipeDirection) => {
     if (!book || !settings.pageTurnSwipe || escMenu || settingsOpen || pageNavigator) return false;
     const originMap = { "left": "right", "right": "left", "up": "bottom", "down": "top" } as const;
-    const moved = turnPage(direction === "left" || direction === "up" ? "next" : "previous", originMap[direction]);
+    const isNext = direction === "left" || direction === "up";
+    const moved = turnPage(isNext ? "next" : "previous", originMap[direction]);
     if (moved) triggerFeedback(settings.pageTurnFeedback);
     return moved;
   }, [book, escMenu, pageNavigator, settings.pageTurnSwipe, settings.pageTurnFeedback, settingsOpen, turnPage]));
@@ -736,8 +784,10 @@ export default function App() {
       if (!book || settingsOpen || pageNavigator) return;
       if (event.key === "Escape") { event.preventDefault(); setEscMenu((value) => !value); return; }
       if (escMenu) return;
-      if (["ArrowRight", "ArrowDown", "PageDown", " "].includes(event.key)) { event.preventDefault(); turnPage("next"); }
-      if (["ArrowLeft", "ArrowUp", "PageUp"].includes(event.key)) { event.preventDefault(); turnPage("previous"); }
+      if (["ArrowLeft"].includes(event.key)) { event.preventDefault(); turnPage("previous", "left"); }
+      if (["ArrowRight"].includes(event.key)) { event.preventDefault(); turnPage("next", "right"); }
+      if (["ArrowDown", "PageDown", " "].includes(event.key)) { event.preventDefault(); turnPage("next", "bottom"); }
+      if (["ArrowUp", "PageUp"].includes(event.key)) { event.preventDefault(); turnPage("previous", "top"); }
     };
     window.addEventListener("keydown", handler); return () => window.removeEventListener("keydown", handler);
   }, [book, escMenu, pageNavigator, settingsOpen, turnPage]);
@@ -746,8 +796,8 @@ export default function App() {
     const handler = (event: Event) => {
       if (!book || !settings.pageTurnVolume || escMenu || settingsOpen || pageNavigator) return;
       const direction = (event as CustomEvent<{ direction?: "next" | "previous" }>).detail?.direction;
-      if (direction === "next") turnPage("next");
-      if (direction === "previous") turnPage("previous");
+      if (direction === "next") turnPage("next", "bottom");
+      if (direction === "previous") turnPage("previous", "top");
     };
     window.addEventListener("volumePageTurn", handler);
     return () => window.removeEventListener("volumePageTurn", handler);
@@ -846,7 +896,7 @@ export default function App() {
       </div>
     )}
     {!book ? <LibraryView tab={tab} setTab={setTab} search={search} setSearch={setSearch} books={filteredBooks} sources={sources} activeSourceId={activeSourceId} onSelectSource={setActiveSourceId} onRemoveSource={removeSource} history={history} bookmarks={bookmarks} onOpen={openBook} onOpenHistory={openFromList} onAdd={() => setAddSourceOpen(true)} onSettings={() => setSettingsOpen(true)} activeSource={activeSource} settings={settings} setSettings={setSettings} /> :
-      <section className="reader-screen" {...readerSwipeHandlers}>
+      <section className="reader-screen" {...readerSwipeHandlers} onContextMenu={(e) => { e.preventDefault(); triggerFeedback(settings.pageTurnFeedback); setEscMenu(v => !v); }}>
         <div ref={readerAreaRef} className="reader-area">
           {reader}
           <div className="reader-page-number">{pageInfo.current} / {pageInfo.indexing ? "계산 중" : pageInfo.total}</div>
@@ -855,7 +905,6 @@ export default function App() {
         <button className="reader-turn reader-turn-top" aria-label="이전 페이지" onClick={(event) => { event.currentTarget.blur(); if (!escMenu && settings.pageTurnTouch && turnPage("previous", "top")) triggerFeedback(settings.pageTurnFeedback); }} />
         <button className="reader-turn reader-turn-bottom" aria-label="다음 페이지" onClick={(event) => { event.currentTarget.blur(); if (!escMenu && settings.pageTurnTouch && turnPage("next", "bottom")) triggerFeedback(settings.pageTurnFeedback); }} />
         <button className="reader-turn reader-turn-left" aria-label="이전 페이지" onClick={(event) => { event.currentTarget.blur(); if (!escMenu && settings.pageTurnTouch && turnPage("previous", "left")) triggerFeedback(settings.pageTurnFeedback); }} />
-        <button className="reader-turn reader-turn-center" aria-label="메뉴 열기" onClick={(event) => { event.currentTarget.blur(); triggerFeedback(settings.pageTurnFeedback); setEscMenu(v => !v); }} />
         <button className="reader-turn reader-turn-right" aria-label="다음 페이지" onClick={(event) => { event.currentTarget.blur(); if (!escMenu && settings.pageTurnTouch && turnPage("next", "right")) triggerFeedback(settings.pageTurnFeedback); }} />
         {escMenu && <><div className="overlay-blur" /><div className="modal-layer"><div className="esc-card">
           <button className="esc-close-button" aria-label="메뉴 닫기" onClick={() => setEscMenu(false)}>✕</button>
@@ -1168,7 +1217,7 @@ function SettingsModal({ initialSettings, onConfirm, onClose, onResetSettings, o
     
     <div className="settings-preview-section">
       <h3>👀 미리보기</h3>
-      <div className="settings-preview" style={{ fontFamily: settings.fontFamily, fontSize: settings.fontSize, fontWeight: settings.isBold ? 700 : 400, lineHeight: settings.lineHeight, letterSpacing: `${settings.letterSpacing}px` }}>
+      <div className={`settings-preview ${settings.theme === "system" ? "theme-system" : `theme-${settings.theme}`}`} style={{ fontFamily: settings.fontFamily, fontSize: settings.fontSize, fontWeight: settings.isBold ? 700 : 400, lineHeight: settings.lineHeight, letterSpacing: `${settings.letterSpacing}px`, color: "var(--text)" }}>
         소년은 개울가에서 소녀를 보자 곧 윤 초시네 증손녀딸이라는 걸 알 수 있었다. 소녀는 개울에다 손을 씻고 있었다. 그런데 어제까지는 개울 기슭에서 씻더니, 오늘은 징검다리 한가운데 앉아서
       </div>
     </div>
