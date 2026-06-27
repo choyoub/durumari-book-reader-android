@@ -60,6 +60,28 @@ npx expo run:android
 
 ## APK 빌드 생성 (Production)
 
+루트 `package.json`에 릴리즈 APK 빌드 스크립트가 등록되어 있습니다. Windows PowerShell 환경에서는 아래 명령 하나로 웹뷰 번들 빌드, Android 에셋 복사, Gradle 릴리즈 APK 생성까지 한 번에 처리할 수 있습니다.
+
+```bash
+npm run build:apk
+```
+
+이 스크립트는 내부적으로 다음 작업을 수행합니다.
+
+1. `npm run build`로 웹뷰어 프로덕션 번들을 생성합니다.
+2. `dist` 결과물을 `mobile/android/app/src/main/assets/dist`로 복사합니다.
+3. `NODE_ENV=production`을 설정하고 `:app:assembleRelease`를 실행합니다.
+4. 생성된 APK 경로, 파일 크기, SHA256 해시를 출력합니다.
+
+완성된 APK 파일은 다음 경로에 생성됩니다.
+
+`mobile\android\app\build\outputs\apk\release\app-release.apk`
+
+참고:
+- 현재 `release` 빌드는 `mobile/android/app/build.gradle` 설정상 debug keystore로 서명됩니다.
+- 빌드 중 네이티브 캐시 문제(`.cxx` 에러 등)가 발생하면 `mobile\android\app\.cxx` 폴더를 삭제한 뒤 다시 `npm run build:apk`를 실행하세요.
+- 아래 수동 절차는 `build:apk`가 수행하는 작업을 직접 실행해야 할 때만 참고하면 됩니다.
+
 안드로이드용 릴리즈 APK를 로컬에서 완전히 수동으로 빌드하려면 웹앱을 먼저 빌드하고, 그 결과물을 모바일 에셋 폴더로 복사한 뒤 Gradle 빌드를 수행해야 합니다. 
 
 아래 명령어는 Windows PowerShell 환경을 기준으로 모든 과정을 한 번에 수행하는 명령어입니다.
@@ -86,4 +108,3 @@ $env:ANDROID_HOME="C:\Users\자신의윈도우계정명\AppData\Local\Android\Sd
 
 완성된 APK 파일은 다음 경로에 생성됩니다:
 `mobile\android\app\build\outputs\apk\release\app-release.apk`
-
