@@ -44,7 +44,7 @@ export interface ReaderSettings {
   pageTurnFeedback: "none" | "vibration" | "sound";
   pageTurnStyle: "none" | "curl" | "slide";
   hideCompleted: boolean;
-  theme: "paper" | "light" | "dark" | "system";
+  theme: "paper" | "light" | "dark" | "chalkboard" | "system";
   librarySort: SortConfig;
   historySort: SortConfig;
   bookmarksSort: SortConfig;

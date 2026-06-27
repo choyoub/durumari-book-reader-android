@@ -178,7 +178,7 @@ export default function App() {
       } else if (data.type === 'WEB_ERROR') {
         Alert.alert('도서 뷰어 오류', data.message || '알 수 없는 오류가 발생했습니다.');
       } else if (data.type === 'THEME_CHANGED') {
-        setStatusBarStyle(data.theme === 'dark' ? 'light' : data.theme === 'system' ? 'auto' : 'dark');
+        setStatusBarStyle(data.theme === 'dark' || data.theme === 'chalkboard' ? 'light' : data.theme === 'system' ? 'auto' : 'dark');
         if (typeof data.backgroundColor === 'string') setSystemBarColor(data.backgroundColor);
       }
     } catch (error: any) {

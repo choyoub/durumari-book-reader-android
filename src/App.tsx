@@ -133,6 +133,7 @@ const READER_FONTS = [
 
 type Tab = "library" | "history" | "bookmarks";
 interface BookmarkItem { bookId: string; bookTitle: string; progress: number; cfi?: string; page: number; preview: string; createdAt: number; }
+interface ViewerLoadingStatus { active: boolean; progress: number; message: string; detail?: string; }
 
 const SORT_COLLATOR = new Intl.Collator("ko", { numeric: true });
 const PROGRESS_SAVE_INTERVAL_MS = 700;
@@ -242,6 +243,11 @@ export default function App() {
   const [pageNavigator, setPageNavigator] = useState(false);
   const [navProgress, setNavProgress] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [viewerLoading, setViewerLoading] = useState<ViewerLoadingStatus>({
+    active: false,
+    progress: 0,
+    message: "뷰어를 준비하는 중...",
+  });
   const [error, setError] = useState("");
   const [introActive, setIntroActive] = useState(true);
   const [introProgress, setIntroProgress] = useState(0);
@@ -512,6 +518,8 @@ export default function App() {
     const sendTheme = () => {
       const backgroundColor = settings.theme === "dark" || (settings.theme === "system" && colorScheme.matches)
         ? "#090909"
+        : settings.theme === "chalkboard"
+          ? "#0d241f"
         : settings.theme === "light"
           ? "#e2dbcc"
           : "#cfbe90";
@@ -752,8 +760,20 @@ export default function App() {
 
   const openBook = useCallback(async (selected: OpenedBook, targetProgress?: number, targetCfi?: string) => {
     setError(""); setLoading(true);
+    setViewerLoading({
+      active: true,
+      progress: 8,
+      message: "도서 파일을 준비하는 중...",
+      detail: selected.name,
+    });
     try {
       const ready = await prepareBook(selected);
+      setViewerLoading({
+        active: true,
+        progress: 28,
+        message: ready.kind === "epub" ? "EPUB 문서를 분석하는 중..." : "텍스트 문서를 분석하는 중...",
+        detail: ready.name,
+      });
       if (ready !== selected) setBooks((items) => items.map((item) => item.id === ready.id ? ready : item));
       const saved = loadJson<{ progress?: number; cfi?: string }>(`durumari.position.${ready.id}`, {});
       setProgress(targetProgress ?? saved.progress ?? 0); setCfi(targetCfi ?? (targetProgress === undefined ? saved.cfi : undefined)); setBook(ready); setEscMenu(false);
@@ -766,6 +786,7 @@ export default function App() {
       if ((window as any).ReactNativeWebView) {
         (window as any).ReactNativeWebView.postMessage(JSON.stringify({ type: "WEB_ERROR", message: `도서 열기 실패: ${message}` }));
       }
+      setViewerLoading((state) => ({ ...state, active: false }));
       return;
     } finally { setLoading(false); }
     setHistory((items) => {
@@ -846,10 +867,21 @@ export default function App() {
     if (!book) flushProgress();
   }, [book, flushProgress]);
 
-  const setInfo = useCallback((current: number, total: number, indexing: boolean) => setPageInfo({ current, total, indexing }), []);
+  const setInfo = useCallback((current: number, total: number, indexing: boolean) => {
+    setPageInfo({ current, total, indexing });
+    if (!indexing) {
+      setViewerLoading((state) => state.active
+        ? { ...state, active: false, progress: 100, message: "준비 완료!" }
+        : state);
+    }
+  }, []);
+  const updateViewerLoading = useCallback((status: ViewerLoadingStatus) => {
+    setViewerLoading(status);
+  }, []);
   const handleReaderError = useCallback((cause: unknown) => {
     const message = cause instanceof Error ? cause.message : String(cause || "뷰어를 초기화하지 못했습니다.");
     setError(`뷰어 오류: ${message}`);
+    setViewerLoading((state) => ({ ...state, active: false }));
     setBook(null);
     localStorage.removeItem("durumari.lastViewedBookId");
     if ((window as any).ReactNativeWebView) {
@@ -916,10 +948,10 @@ export default function App() {
 
   const reader = useMemo(() => {
     if (!book) return null;
-    if (book.kind === "epub" && book.bytes) return <Suspense fallback={<div className="loading-view">EPUB 문서를 여는 중...</div>}><EpubReader key={book.id} bytes={book.bytes} settings={settings} initialCfi={cfi} initialProgress={progress} onProgress={updateProgress} navRef={navRef} onPageInfo={setInfo} onError={handleReaderError} /></Suspense>;
-    return <TextReader key={book.id} cacheKey={book.id} text={book.text ?? ""} settings={settings} initialProgress={progress} onProgress={updateProgress} navRef={navRef} onPageInfo={setInfo} />;
+    if (book.kind === "epub" && book.bytes) return <Suspense fallback={<div className="loading-view">EPUB 문서를 여는 중...</div>}><EpubReader key={book.id} bytes={book.bytes} settings={settings} initialCfi={cfi} initialProgress={progress} onProgress={updateProgress} navRef={navRef} onPageInfo={setInfo} onLoadingStatus={updateViewerLoading} onError={handleReaderError} /></Suspense>;
+    return <TextReader key={book.id} cacheKey={book.id} text={book.text ?? ""} settings={settings} initialProgress={progress} onProgress={updateProgress} navRef={navRef} onPageInfo={setInfo} onLoadingStatus={updateViewerLoading} />;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [book, settings, setInfo, handleReaderError]);
+  }, [book, settings, setInfo, updateViewerLoading, handleReaderError]);
 
   const currentBookmark = book ? bookmarks.find((item) => {
     if (item.bookId !== book.id) return false;
@@ -977,6 +1009,7 @@ export default function App() {
       <section className="reader-screen" {...readerSwipeHandlers} onContextMenu={(e) => { e.preventDefault(); triggerFeedback(settings.pageTurnFeedback); setEscMenu(v => !v); }}>
         <div ref={readerAreaRef} className="reader-area">
           {reader}
+          {viewerLoading.active && <ViewerLoadingScreen bookTitle={book.name} status={viewerLoading} />}
           <div className="reader-page-number">{pageInfo.current} / {pageInfo.indexing ? "계산 중" : pageInfo.total}</div>
           {isBookmarked && <div className="reader-bookmark-indicator" />}
         </div>
@@ -1003,6 +1036,32 @@ export default function App() {
     {settingsOpen && <SettingsModal initialSettings={settings} onConfirm={(s) => { setSettings(s); setSettingsOpen(false); }} onClose={() => setSettingsOpen(false)} onResetSettings={resetSettings} onClearFolders={clearAllSources} />}
     {pageNavigator && <PageNavigator current={pageInfo.current} total={pageInfo.total} progress={navProgress} bookmarks={book ? bookmarks.filter((item) => item.bookId === book.id) : []} onChange={setNavProgress} onClose={() => setPageNavigator(false)} onGo={() => { navRef.current?.go(navProgress); setPageNavigator(false); setEscMenu(false); }} />}
   </main>;
+}
+
+function ViewerLoadingScreen({ bookTitle, status }: { bookTitle: string; status: ViewerLoadingStatus }) {
+  const safeProgress = Math.max(0, Math.min(100, status.progress));
+  return <div className="viewer-loading-screen" role="status" aria-live="polite">
+    <div className="viewer-loading-visual" aria-hidden="true">
+      <div className="viewer-loading-scroll">
+        <div className="viewer-loading-roller viewer-loading-roller-top"><i /><b /><i /></div>
+        <div className="viewer-loading-paper">
+          <span />
+          <span />
+          <span />
+          <span />
+        </div>
+        <div className="viewer-loading-roller viewer-loading-roller-bottom"><i /><b /><i /></div>
+      </div>
+    </div>
+    <div className="viewer-loading-copy">
+      <strong>{bookTitle}</strong>
+      <span>{status.message}</span>
+      {status.detail && <small>{status.detail}</small>}
+    </div>
+    <div className="viewer-loading-progress" aria-label={`로딩 ${Math.round(safeProgress)}%`}>
+      <i style={{ width: `${safeProgress}%` }} />
+    </div>
+  </div>;
 }
 
 function LibraryView({ tab, setTab, search, setSearch, books, sources, activeSourceId, onSelectSource, onRemoveSource, history, bookmarks, onOpen, onOpenHistory, onAdd, onSettings, activeSource, settings, setSettings }: {
@@ -1074,7 +1133,7 @@ function LibraryView({ tab, setTab, search, setSearch, books, sources, activeSou
 
   const readingStatus = (bookId: string) => {
     const record = historyById.get(bookId);
-    if (!record) return { label: "미독", className: "status-unread" };
+    if (!record || record.progress <= 0) return { label: "미독", className: "status-unread" };
     if (record.progress >= .999) return { label: "완독", className: "status-completed" };
     return { label: "읽는 중", className: "status-reading" };
   };
@@ -1083,7 +1142,7 @@ function LibraryView({ tab, setTab, search, setSearch, books, sources, activeSou
     return sortedBy(books, librarySort, (item, column) => {
       if (column !== "status") return item[column as keyof OpenedBook] || "";
       const record = historyById.get(item.id);
-      if (!record) return 0;
+      if (!record || record.progress <= 0) return 0;
       return record.progress >= .999 ? 2 : 1;
     });
   }, [books, librarySort, historyById]);
@@ -1284,7 +1343,7 @@ function SettingsModal({ initialSettings, onConfirm, onClose, onResetSettings, o
       <hr />
       
       <h3>🎨 테마 및 필터</h3>
-      <div className="setting-line"><span>테마</span><div className="theme-buttons">{([['light','☀️ 화이트'],['dark','🌙 다크'],['paper','📜 한지']] as const).map(([value,label]) => <button key={value} className={settings.theme === value ? "selected" : ""} onClick={() => onChange((s) => ({ ...s, theme: value }))}>{label}</button>)}</div></div>
+      <div className="setting-line"><span>테마</span><div className="theme-buttons">{([['light','☀️ 화이트'],['dark','🌙 다크'],['paper','📜 한지'],['chalkboard','🟩 칠판']] as const).map(([value,label]) => <button key={value} className={settings.theme === value ? "selected" : ""} onClick={() => onChange((s) => ({ ...s, theme: value }))}>{label}</button>)}</div></div>
       <div className="setting-line"><span>필터</span><label><input type="checkbox" checked={settings.hideCompleted} onChange={(e) => onChange((s) => ({ ...s, hideCompleted: e.target.checked }))} /> 완독한 책 목록에서 숨김</label></div>
       
       <hr />

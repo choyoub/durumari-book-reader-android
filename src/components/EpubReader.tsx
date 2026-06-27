@@ -3,6 +3,21 @@ import ePub from "epubjs";
 import type { Book, Rendition } from "epubjs";
 import type { ReaderSettings } from "../types";
 
+const EPUB_THEME_COLORS: Record<Exclude<ReaderSettings["theme"], "system">, { background: string; text: string; link: string }> = {
+  paper: { background: "#f2ead3", text: "#2a2a2a", link: "#d35400" },
+  light: { background: "#f8f4ed", text: "#1a1a2e", link: "#e65100" },
+  dark: { background: "#121212", text: "#e0e0e0", link: "#ff9800" },
+  chalkboard: { background: "#183b32", text: "#f1ead0", link: "#f3c969" },
+};
+
+function getEpubThemeColors(theme: ReaderSettings["theme"]) {
+  if (theme === "system") {
+    const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    return dark ? EPUB_THEME_COLORS.dark : EPUB_THEME_COLORS.light;
+  }
+  return EPUB_THEME_COLORS[theme];
+}
+
 interface Props {
   bytes: ArrayBuffer;
   settings: ReaderSettings;
@@ -11,10 +26,11 @@ interface Props {
   onProgress: (progress: number, cfi?: string) => void;
   navRef: React.MutableRefObject<{ next: () => void | Promise<void>; previous: () => void | Promise<void>; go: (p: number) => void | Promise<void> } | null>;
   onPageInfo: (current: number, total: number, indexing: boolean) => void;
+  onLoadingStatus?: (status: { active: boolean; progress: number; message: string; detail?: string }) => void;
   onError: (error: unknown) => void;
 }
 
-export function EpubReader({ bytes, settings, initialCfi, initialProgress = 0, onProgress, navRef, onPageInfo, onError }: Props) {
+export function EpubReader({ bytes, settings, initialCfi, initialProgress = 0, onProgress, navRef, onPageInfo, onLoadingStatus, onError }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const renditionRef = useRef<Rendition | null>(null);
   const bookRef = useRef<Book | null>(null);
@@ -25,7 +41,18 @@ export function EpubReader({ bytes, settings, initialCfi, initialProgress = 0, o
     let book: Book;
     let rendition: Rendition;
     try {
+      onLoadingStatus?.({
+        active: true,
+        progress: 38,
+        message: "EPUB 패키지를 여는 중...",
+        detail: `${Math.max(1, Math.round(bytes.byteLength / 1024)).toLocaleString()}KB`,
+      });
       book = ePub(bytes.slice(0));
+      onLoadingStatus?.({
+        active: true,
+        progress: 48,
+        message: "뷰어 레이아웃을 구성하는 중...",
+      });
       rendition = book.renderTo(host.current, {
       width: "100%", height: "100%", flow: "paginated", spread: "none",
       manager: "default", allowScriptedContent: false
@@ -49,14 +76,22 @@ export function EpubReader({ bytes, settings, initialCfi, initialProgress = 0, o
     };
     rendition.themes.register("reader-fonts", "/fonts/fonts.css");
     rendition.themes.select("reader-fonts");
+    const themeColors = getEpubThemeColors(settings.theme);
     rendition.themes.default({
-      "html, body": { "background": "transparent !important" },
+      "html, body": {
+        "background": `${themeColors.background} !important`,
+        "color": `${themeColors.text} !important`,
+      },
       "p, span, div, h1, h2, h3, h4, h5, h6, li, a": {
+        "color": `${themeColors.text} !important`,
         "font-family": `${settings.fontFamily} !important`,
         "line-height": `${settings.lineHeight} !important`,
         "letter-spacing": `${settings.letterSpacing}px !important`,
       },
+      "a": { "color": `${themeColors.link} !important` },
       "body": {
+        "background": `${themeColors.background} !important`,
+        "color": `${themeColors.text} !important`,
         "font-family": `${settings.fontFamily} !important`,
         "font-size": `${settings.fontSize}px !important`,
         "font-weight": `${settings.isBold ? 700 : 400} !important`,
@@ -98,20 +133,47 @@ export function EpubReader({ bytes, settings, initialCfi, initialProgress = 0, o
 
     void book.ready.then(async () => {
       if (disposed) return;
+      onLoadingStatus?.({
+        active: true,
+        progress: 62,
+        message: "목차와 본문 구조를 읽는 중...",
+        detail: `${Math.max(1, book.spine.length).toLocaleString()}개 섹션`,
+      });
       if (initialCfi) {
+        onLoadingStatus?.({
+          active: true,
+          progress: 74,
+          message: "저장된 위치로 이동하는 중...",
+        });
         try { await rendition.display(initialCfi); }
         catch { await rendition.display(); }
       } else if (initialProgress <= 0) {
+        onLoadingStatus?.({
+          active: true,
+          progress: 74,
+          message: "첫 페이지를 펼치는 중...",
+        });
         await rendition.display();
       }
       if (disposed) return;
       if (!userNavigated && !initialCfi && initialProgress > 0) {
+        onLoadingStatus?.({
+          active: true,
+          progress: 82,
+          message: "전체 위치 정보를 계산하는 중...",
+          detail: `${Math.round(initialProgress * 100)}% 지점으로 이동합니다.`,
+        });
         await book.locations.generate(1600);
         if (disposed) return;
         const target = book.locations.cfiFromPercentage(Math.max(0, Math.min(1, initialProgress)));
         if (target) await rendition.display(target); else await rendition.display();
       }
       if (disposed) return;
+      onLoadingStatus?.({
+        active: true,
+        progress: 94,
+        message: "읽기 화면을 정리하는 중...",
+      });
       const location = rendition.currentLocation() as unknown as { start?: { cfi?: string } };
       if (location?.start?.cfi) relocated({ start: { cfi: location.start.cfi } });
     }).catch((error) => {
@@ -140,8 +202,8 @@ export function EpubReader({ bytes, settings, initialCfi, initialProgress = 0, o
     };
   // Recreating rendition on layout setting changes prevents stale epub.js columns.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bytes, initialCfi, initialProgress, onError, settings.fontFamily, settings.fontSize, settings.isBold, settings.lineHeight, settings.letterSpacing,
-      settings.paddingTop, settings.paddingBottom, settings.paddingLeft, settings.paddingRight]);
+  }, [bytes, initialCfi, initialProgress, onError, onLoadingStatus, settings.fontFamily, settings.fontSize, settings.isBold, settings.lineHeight, settings.letterSpacing,
+      settings.paddingTop, settings.paddingBottom, settings.paddingLeft, settings.paddingRight, settings.theme]);
 
   return <div ref={host} className="reader-host epub-reader" />;
 }
