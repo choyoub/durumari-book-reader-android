@@ -31,6 +31,12 @@
         {
           "backgroundColor": "#0D1B2A"
         }
+      ],
+      [
+        "expo-navigation-bar",
+        {
+          "enforceContrast": false
+        }
       ]
     ],
     "experiments": {

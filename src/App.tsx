@@ -137,7 +137,7 @@ interface ViewerLoadingStatus { active: boolean; progress: number; message: stri
 
 const SORT_COLLATOR = new Intl.Collator("ko", { numeric: true });
 const PROGRESS_SAVE_INTERVAL_MS = 700;
-const VIEWER_LOADING_MIN_MS = 1400;
+const VIEWER_LOADING_MIN_MS = 1900;
 const WHEEL_PAGE_TURN_COOLDOWN_MS = 260;
 let pageTurnAudio: HTMLAudioElement | null = null;
 

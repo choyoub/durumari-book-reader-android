@@ -2,7 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Alert, BackHandler, StyleSheet } from 'react-native';
 import { Directory as ExpoDirectory, File as ExpoFile } from 'expo-file-system';
 import * as FileSystem from 'expo-file-system/legacy';
+import { NavigationBar, type NavigationBarStyle } from 'expo-navigation-bar';
 import { StatusBar } from 'expo-status-bar';
+import * as SystemUI from 'expo-system-ui';
 import { WebView } from 'react-native-webview';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
@@ -16,6 +18,17 @@ type NativeFile = {
 };
 
 const BASE64_CHUNK_SIZE = 256 * 1024;
+type StatusBarStyle = 'auto' | 'light' | 'dark';
+
+function getSystemBarStyles(theme: string): { statusBar: StatusBarStyle; navigationBar: NavigationBarStyle } {
+  if (theme === 'dark' || theme === 'chalkboard') return { statusBar: 'light', navigationBar: 'dark' };
+  if (theme === 'system') return { statusBar: 'auto', navigationBar: 'auto' };
+  return { statusBar: 'dark', navigationBar: 'light' };
+}
+
+function applySystemBarColor(color: string) {
+  void SystemUI.setBackgroundColorAsync(color).catch(() => undefined);
+}
 
 function safeDecode(value: string) {
   try {
@@ -85,9 +98,13 @@ async function readBooksRecursively(directoryUri: string): Promise<NativeFile[]>
 
 export default function App() {
   const webviewRef = useRef<WebView>(null);
-  const [statusBarStyle, setStatusBarStyle] = useState<'auto' | 'light' | 'dark'>('auto');
+  const [statusBarStyle, setStatusBarStyle] = useState<StatusBarStyle>('auto');
   const [systemBarColor, setSystemBarColor] = useState('#cfbe90');
   const ASSET_URL = 'file:///android_asset/dist/index.html';
+
+  useEffect(() => {
+    applySystemBarColor(systemBarColor);
+  }, [systemBarColor]);
 
   useEffect(() => {
     const onBackPress = () => {
@@ -178,7 +195,9 @@ export default function App() {
       } else if (data.type === 'WEB_ERROR') {
         Alert.alert('도서 뷰어 오류', data.message || '알 수 없는 오류가 발생했습니다.');
       } else if (data.type === 'THEME_CHANGED') {
-        setStatusBarStyle(data.theme === 'dark' || data.theme === 'chalkboard' ? 'light' : data.theme === 'system' ? 'auto' : 'dark');
+        const styles = getSystemBarStyles(data.theme);
+        setStatusBarStyle(styles.statusBar);
+        NavigationBar.setStyle(styles.navigationBar);
         if (typeof data.backgroundColor === 'string') setSystemBarColor(data.backgroundColor);
       }
     } catch (error: any) {
