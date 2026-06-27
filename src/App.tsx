@@ -1342,30 +1342,74 @@ function AddSourceModal({ pending, path, name, loading, onName, onBrowse, onClos
   </div></div></>;
 }
 
+function FontFamilySelect({ value, onChange }: { value: string; onChange: (value: string) => void; }) {
+  const [open, setOpen] = useState(false);
+  const selectedFont = READER_FONTS.find((font) => font.value === value) ?? READER_FONTS[0];
+
+  return <div className="font-combo" onBlur={(event) => {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false);
+  }}>
+    <button
+      type="button"
+      className="font-combo-button"
+      style={{ fontFamily: selectedFont.value }}
+      aria-haspopup="listbox"
+      aria-expanded={open}
+      onClick={() => setOpen((current) => !current)}
+    >
+      <span>{selectedFont.label}</span>
+      <span className="font-combo-arrow">▾</span>
+    </button>
+    {open && <div className="font-combo-list" role="listbox" aria-label="서체 선택">
+      {READER_FONTS.map((font) => (
+        <button
+          type="button"
+          key={font.value}
+          role="option"
+          aria-selected={font.value === value}
+          className={font.value === value ? "selected" : ""}
+          style={{ fontFamily: font.value }}
+          onClick={() => {
+            onChange(font.value);
+            setOpen(false);
+          }}
+        >
+          {font.label}
+        </button>
+      ))}
+    </div>}
+  </div>;
+}
+
 function SettingsModal({ initialSettings, onConfirm, onClose, onResetSettings, onClearFolders }: { initialSettings: ReaderSettings; onConfirm: (s: ReaderSettings) => void; onClose: () => void; onResetSettings: () => void; onClearFolders: () => void; }) {
   const [settings, setSettings] = useState(initialSettings);
   useEffect(() => { setSettings(initialSettings); }, [initialSettings]);
   const onChange = setSettings;
+  const previewHeight = Math.ceil(settings.fontSize * settings.lineHeight * 2 + 22);
+  const adjustSettingValue = (key: "fontSize" | "lineHeight" | "letterSpacing" | "paddingTop" | "paddingBottom" | "paddingLeft" | "paddingRight", min: number, max: number, step: number, direction: -1 | 1) => {
+    onChange((s) => {
+      const precision = step.toString().split(".")[1]?.length ?? 0;
+      const value = Math.min(max, Math.max(min, Number((s[key] + step * direction).toFixed(precision))));
+      return s.paddingLinked && (key === "paddingLeft" || key === "paddingRight")
+        ? { ...s, paddingLeft: value, paddingRight: value }
+        : { ...s, [key]: value };
+    });
+  };
 
-  const range = (label: string, key: "fontSize" | "lineHeight" | "letterSpacing" | "paddingTop" | "paddingBottom" | "paddingLeft" | "paddingRight", min: number, max: number, step: number, unit = "") => <div className="setting-line"><span>{label}</span><input type="range" min={min} max={max} step={step} value={settings[key]} onChange={(e) => {
-    const value = Number(e.target.value);
-    onChange((s) => s.paddingLinked && (key === "paddingLeft" || key === "paddingRight")
-      ? { ...s, paddingLeft: value, paddingRight: value }
-      : { ...s, [key]: value });
-  }} /><b>{settings[key]}{unit}</b></div>;
+  const range = (label: string, key: "fontSize" | "lineHeight" | "letterSpacing" | "paddingTop" | "paddingBottom" | "paddingLeft" | "paddingRight", min: number, max: number, step: number, unit = "") => <div className="setting-line"><span>{label}</span><div className="setting-stepper"><button type="button" disabled={settings[key] <= min} onClick={() => adjustSettingValue(key, min, max, step, -1)}>-</button><b>{settings[key]}{unit}</b><button type="button" disabled={settings[key] >= max} onClick={() => adjustSettingValue(key, min, max, step, 1)}>+</button></div></div>;
   return <><div className="overlay-blur" onClick={onClose} /><div className="modal-layer"><div className="dialog settings-dialog">
     <div className="dialog-title"><b>⚙️ 설정</b><button onClick={onClose}>✕</button></div>
     
     <div className="settings-preview-section">
       <h3>👀 미리보기</h3>
-      <div className={`settings-preview ${settings.theme === "system" ? "theme-system" : `theme-${settings.theme}`}`} style={{ fontFamily: settings.fontFamily, fontSize: settings.fontSize, fontWeight: settings.isBold ? 700 : 400, lineHeight: settings.lineHeight, letterSpacing: `${settings.letterSpacing}px`, color: "var(--text)" }}>
+      <div className={`settings-preview ${settings.theme === "system" ? "theme-system" : `theme-${settings.theme}`}`} style={{ height: previewHeight, fontFamily: settings.fontFamily, fontSize: settings.fontSize, fontWeight: settings.isBold ? 700 : 400, lineHeight: settings.lineHeight, letterSpacing: `${settings.letterSpacing}px`, color: "var(--text)" }}>
         소년은 개울가에서 소녀를 보자 곧 윤 초시네 증손녀딸이라는 걸 알 수 있었다. 소녀는 개울에다 손을 씻고 있었다. 그런데 어제까지는 개울 기슭에서 씻더니, 오늘은 징검다리 한가운데 앉아서
       </div>
     </div>
 
     <div className="settings-scroll">
       <h3>📖 읽기 설정</h3>
-      <div className="setting-line"><span>서체</span><select value={settings.fontFamily} onChange={(e) => onChange((s) => ({ ...s, fontFamily: e.target.value }))}>{READER_FONTS.map((font) => <option key={font.value} value={font.value} style={{ fontFamily: font.value }}>{font.label}</option>)}</select></div>
+      <div className="setting-line"><span>서체</span><FontFamilySelect value={settings.fontFamily} onChange={(fontFamily) => onChange((s) => ({ ...s, fontFamily }))} /></div>
       {range("글자 크기", "fontSize", 10, 36, 1, "pt")}
       <div className="setting-line"><span>글자 굵기</span><div className="toggle-pair"><button className={!settings.isBold ? "selected" : ""} onClick={() => onChange((s) => ({ ...s, isBold: false }))}>일반</button><button className={settings.isBold ? "selected" : ""} onClick={() => onChange((s) => ({ ...s, isBold: true }))}>굵게</button></div></div>
       {range("줄 간격", "lineHeight", 1, 2.5, .1)}
@@ -1405,7 +1449,7 @@ function SettingsModal({ initialSettings, onConfirm, onClose, onResetSettings, o
       <hr />
       
       <h3>🎨 테마 및 필터</h3>
-      <div className="setting-line"><span>테마</span><div className="theme-buttons">{([['light','☀️ 화이트'],['dark','🌙 다크'],['paper','📜 한지'],['chalkboard','🟩 칠판']] as const).map(([value,label]) => <button key={value} className={settings.theme === value ? "selected" : ""} onClick={() => onChange((s) => ({ ...s, theme: value }))}>{label}</button>)}</div></div>
+      <div className="setting-line theme-setting-line"><span>테마</span><div className="theme-buttons">{([['light','☀️ 화이트'],['dark','🌙 다크'],['paper','📜 한지'],['chalkboard','🟩 칠판']] as const).map(([value,label]) => <button key={value} data-theme-choice={value} aria-pressed={settings.theme === value} className={settings.theme === value ? "selected" : ""} onClick={() => onChange((s) => ({ ...s, theme: value }))}>{label}</button>)}</div></div>
       <div className="setting-line"><span>필터</span><label><input type="checkbox" checked={settings.hideCompleted} onChange={(e) => onChange((s) => ({ ...s, hideCompleted: e.target.checked }))} /> 완독한 책 목록에서 숨김</label></div>
       
       <hr />
