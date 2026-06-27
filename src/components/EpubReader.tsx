@@ -4,11 +4,12 @@ import type { Book, Rendition } from "epubjs";
 import type { ReaderSettings } from "../types";
 
 const EPUB_THEME_COLORS: Record<Exclude<ReaderSettings["theme"], "system">, { background: string; text: string; link: string }> = {
-  paper: { background: "#f2ead3", text: "#2a2a2a", link: "#d35400" },
-  light: { background: "#f8f4ed", text: "#1a1a2e", link: "#e65100" },
-  dark: { background: "#121212", text: "#e0e0e0", link: "#ff9800" },
+  paper: { background: "#f2ead3", text: "#2a2a2a", link: "#9a5a10" },
+  light: { background: "#f8f4ed", text: "#1a1a2e", link: "#2563eb" },
+  dark: { background: "#121212", text: "#e0e0e0", link: "#8ab4f8" },
   chalkboard: { background: "#183b32", text: "#f1ead0", link: "#f3c969" },
 };
+const WHEEL_PAGE_TURN_COOLDOWN_MS = 260;
 
 function getEpubThemeColors(theme: ReaderSettings["theme"]) {
   if (theme === "system") {
@@ -64,6 +65,7 @@ export function EpubReader({ bytes, settings, initialCfi, initialProgress = 0, o
     bookRef.current = book;
     renditionRef.current = rendition;
     let userNavigated = false;
+    let lastWheelTurnTime = 0;
     const next = () => {
       if (disposed) return Promise.resolve();
       userNavigated = true;
@@ -124,6 +126,17 @@ export function EpubReader({ bytes, settings, initialCfi, initialProgress = 0, o
     rendition.on("keyup", (event: KeyboardEvent) => {
       if (["ArrowRight", "ArrowDown", "PageDown", " "].includes(event.key)) void next();
       if (["ArrowLeft", "ArrowUp", "PageUp"].includes(event.key)) void previous();
+    });
+    rendition.on("wheel", (event: WheelEvent) => {
+      if (event.deltaY === 0) return;
+      event.preventDefault();
+
+      const now = Date.now();
+      if (now - lastWheelTurnTime < WHEEL_PAGE_TURN_COOLDOWN_MS) return;
+      lastWheelTurnTime = now;
+
+      if (event.deltaY > 0) void next();
+      else void previous();
     });
     rendition.on("click", (event: MouseEvent) => {
       const width = event.view?.innerWidth || host.current?.clientWidth || 1;

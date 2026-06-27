@@ -137,6 +137,8 @@ interface ViewerLoadingStatus { active: boolean; progress: number; message: stri
 
 const SORT_COLLATOR = new Intl.Collator("ko", { numeric: true });
 const PROGRESS_SAVE_INTERVAL_MS = 700;
+const VIEWER_LOADING_MIN_MS = 1400;
+const WHEEL_PAGE_TURN_COOLDOWN_MS = 260;
 let pageTurnAudio: HTMLAudioElement | null = null;
 
 function nextSortDirection(currentColumn: string, currentDirection: SortConfig["direction"], column: string): SortConfig["direction"] {
@@ -252,11 +254,14 @@ export default function App() {
   const [introActive, setIntroActive] = useState(true);
   const [introProgress, setIntroProgress] = useState(0);
   const [introText, setIntroText] = useState("앱 초기화 중...");
+  const viewerLoadingStartedRef = useRef(0);
+  const viewerLoadingHideTimerRef = useRef<number | null>(null);
   const navRef = useRef<{ next: () => void | Promise<void>; previous: () => void | Promise<void>; go: (p: number) => void | Promise<void> } | null>(null);
   const readerAreaRef = useRef<HTMLDivElement>(null);
   const pageTurnAnimatingRef = useRef(false);
   const pageTurnAnimationRef = useRef<Animation | null>(null);
   const lastTurnTimeRef = useRef(0);
+  const lastWheelTurnTimeRef = useRef(0);
   const turnPage = useCallback((direction: "next" | "previous", origin?: "right" | "left" | "top" | "bottom") => {
     const area = readerAreaRef.current;
     if (!area) return false;
@@ -470,6 +475,47 @@ export default function App() {
   }, [settings.pageTurnStyle]);
 
   useEffect(() => () => pageTurnAnimationRef.current?.cancel(), []);
+  useEffect(() => () => {
+    if (viewerLoadingHideTimerRef.current !== null) window.clearTimeout(viewerLoadingHideTimerRef.current);
+  }, []);
+
+  const showViewerLoading = useCallback((status: Omit<ViewerLoadingStatus, "active">) => {
+    if (viewerLoadingHideTimerRef.current !== null) {
+      window.clearTimeout(viewerLoadingHideTimerRef.current);
+      viewerLoadingHideTimerRef.current = null;
+    }
+    viewerLoadingStartedRef.current = Date.now();
+    setViewerLoading({ active: true, ...status });
+  }, []);
+
+  const updateViewerLoading = useCallback((status: ViewerLoadingStatus) => {
+    if (status.active) {
+      if (viewerLoadingHideTimerRef.current !== null) {
+        window.clearTimeout(viewerLoadingHideTimerRef.current);
+        viewerLoadingHideTimerRef.current = null;
+      }
+      if (!viewerLoadingStartedRef.current) viewerLoadingStartedRef.current = Date.now();
+      setViewerLoading(status);
+      return;
+    }
+    setViewerLoading(status);
+  }, []);
+
+  const completeViewerLoading = useCallback(() => {
+    setViewerLoading((state) => {
+      if (!state.active) return state;
+      const elapsed = Date.now() - viewerLoadingStartedRef.current;
+      const delay = Math.max(0, VIEWER_LOADING_MIN_MS - elapsed);
+      if (viewerLoadingHideTimerRef.current !== null) window.clearTimeout(viewerLoadingHideTimerRef.current);
+      viewerLoadingHideTimerRef.current = window.setTimeout(() => {
+        viewerLoadingHideTimerRef.current = null;
+        viewerLoadingStartedRef.current = 0;
+        setViewerLoading((current) => ({ ...current, active: false, progress: 100, message: "준비 완료!" }));
+      }, delay);
+      return { ...state, progress: 100, message: "준비 완료!" };
+    });
+  }, []);
+
   const readerSwipeHandlers = useSwipeGesture(useCallback((direction: SwipeDirection) => {
     if (!book || !settings.pageTurnSwipe || escMenu || settingsOpen || pageNavigator) return false;
     const originMap = { "left": "right", "right": "left", "up": "bottom", "down": "top" } as const;
@@ -760,15 +806,14 @@ export default function App() {
 
   const openBook = useCallback(async (selected: OpenedBook, targetProgress?: number, targetCfi?: string) => {
     setError(""); setLoading(true);
-    setViewerLoading({
-      active: true,
+    showViewerLoading({
       progress: 8,
       message: "도서 파일을 준비하는 중...",
       detail: selected.name,
     });
     try {
       const ready = await prepareBook(selected);
-      setViewerLoading({
+      updateViewerLoading({
         active: true,
         progress: 28,
         message: ready.kind === "epub" ? "EPUB 문서를 분석하는 중..." : "텍스트 문서를 분석하는 중...",
@@ -786,7 +831,7 @@ export default function App() {
       if ((window as any).ReactNativeWebView) {
         (window as any).ReactNativeWebView.postMessage(JSON.stringify({ type: "WEB_ERROR", message: `도서 열기 실패: ${message}` }));
       }
-      setViewerLoading((state) => ({ ...state, active: false }));
+      updateViewerLoading({ active: false, progress: 0, message: "도서 열기를 중단했습니다." });
       return;
     } finally { setLoading(false); }
     setHistory((items) => {
@@ -794,7 +839,7 @@ export default function App() {
       const next = [{ id: selected.id, name: selected.name, kind: selected.kind, progress: saved.progress ?? 0, openedAt: Date.now() }, ...items.filter((item) => item.id !== selected.id)].slice(0, 100);
       localStorage.setItem("durumari.history", JSON.stringify(next)); return next;
     });
-  }, []);
+  }, [showViewerLoading, updateViewerLoading]);
 
   useEffect(() => {
     loadLibraryBooks().then((loaded) => {
@@ -870,24 +915,19 @@ export default function App() {
   const setInfo = useCallback((current: number, total: number, indexing: boolean) => {
     setPageInfo({ current, total, indexing });
     if (!indexing) {
-      setViewerLoading((state) => state.active
-        ? { ...state, active: false, progress: 100, message: "준비 완료!" }
-        : state);
+      completeViewerLoading();
     }
-  }, []);
-  const updateViewerLoading = useCallback((status: ViewerLoadingStatus) => {
-    setViewerLoading(status);
-  }, []);
+  }, [completeViewerLoading]);
   const handleReaderError = useCallback((cause: unknown) => {
     const message = cause instanceof Error ? cause.message : String(cause || "뷰어를 초기화하지 못했습니다.");
     setError(`뷰어 오류: ${message}`);
-    setViewerLoading((state) => ({ ...state, active: false }));
+    updateViewerLoading({ active: false, progress: 0, message: "뷰어 초기화를 중단했습니다." });
     setBook(null);
     localStorage.removeItem("durumari.lastViewedBookId");
     if ((window as any).ReactNativeWebView) {
       (window as any).ReactNativeWebView.postMessage(JSON.stringify({ type: "WEB_ERROR", message: `뷰어 오류: ${message}` }));
     }
-  }, []);
+  }, [updateViewerLoading]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -900,6 +940,22 @@ export default function App() {
       if (["ArrowUp", "PageUp"].includes(event.key)) { event.preventDefault(); turnPage("previous", "top"); }
     };
     window.addEventListener("keydown", handler); return () => window.removeEventListener("keydown", handler);
+  }, [book, escMenu, pageNavigator, settingsOpen, turnPage]);
+
+  useEffect(() => {
+    const handler = (event: WheelEvent) => {
+      if (!book || escMenu || settingsOpen || pageNavigator || event.deltaY === 0) return;
+      event.preventDefault();
+
+      const now = Date.now();
+      if (now - lastWheelTurnTimeRef.current < WHEEL_PAGE_TURN_COOLDOWN_MS) return;
+      lastWheelTurnTimeRef.current = now;
+
+      if (event.deltaY > 0) turnPage("next", "bottom");
+      else turnPage("previous", "top");
+    };
+    window.addEventListener("wheel", handler, { passive: false });
+    return () => window.removeEventListener("wheel", handler);
   }, [book, escMenu, pageNavigator, settingsOpen, turnPage]);
 
   useEffect(() => {
@@ -1005,11 +1061,11 @@ export default function App() {
         </div>
       </div>
     )}
+    {viewerLoading.active && <ViewerLoadingScreen bookTitle={book?.name ?? viewerLoading.detail ?? "두루마리"} status={viewerLoading} />}
     {!book ? <LibraryView tab={tab} setTab={setTab} search={search} setSearch={setSearch} books={filteredBooks} sources={sources} activeSourceId={activeSourceId} onSelectSource={setActiveSourceId} onRemoveSource={removeSource} history={history} bookmarks={bookmarks} onOpen={openBook} onOpenHistory={openFromList} onAdd={() => setAddSourceOpen(true)} onSettings={() => setSettingsOpen(true)} activeSource={activeSource} settings={settings} setSettings={setSettings} /> :
       <section className="reader-screen" {...readerSwipeHandlers} onContextMenu={(e) => { e.preventDefault(); triggerFeedback(settings.pageTurnFeedback); setEscMenu(v => !v); }}>
         <div ref={readerAreaRef} className="reader-area">
           {reader}
-          {viewerLoading.active && <ViewerLoadingScreen bookTitle={book.name} status={viewerLoading} />}
           <div className="reader-page-number">{pageInfo.current} / {pageInfo.indexing ? "계산 중" : pageInfo.total}</div>
           {isBookmarked && <div className="reader-bookmark-indicator" />}
         </div>
@@ -1030,7 +1086,7 @@ export default function App() {
         </div></div></>}
       </section>}
 
-    {loading && !addSourceOpen && <div className="global-loading" role="status"><span className="loading-spinner" />도서를 불러오는 중...</div>}
+    {loading && !addSourceOpen && !viewerLoading.active && <div className="global-loading" role="status"><span className="loading-spinner" />도서를 불러오는 중...</div>}
     {addSourceOpen && <AddSourceModal pending={pendingBooks} path={selectedPath} name={sourceName} loading={loading} onName={setSourceName} onBrowse={browseSource} onClose={() => { setAddSourceOpen(false); setSelectedPath(""); setSelectedHandle(null); setPendingBooks([]); setSourceName(""); }} onRegister={registerSource} onGoogleDrive={handleGoogleDriveSelect} />}
     {error && <div className="error-toast" role="alert">{error}<button onClick={() => setError("")}>✕</button></div>}
     {settingsOpen && <SettingsModal initialSettings={settings} onConfirm={(s) => { setSettings(s); setSettingsOpen(false); }} onClose={() => setSettingsOpen(false)} onResetSettings={resetSettings} onClearFolders={clearAllSources} />}
@@ -1041,25 +1097,31 @@ export default function App() {
 function ViewerLoadingScreen({ bookTitle, status }: { bookTitle: string; status: ViewerLoadingStatus }) {
   const safeProgress = Math.max(0, Math.min(100, status.progress));
   return <div className="viewer-loading-screen" role="status" aria-live="polite">
-    <div className="viewer-loading-visual" aria-hidden="true">
-      <div className="viewer-loading-scroll">
-        <div className="viewer-loading-roller viewer-loading-roller-top"><i /><b /><i /></div>
-        <div className="viewer-loading-paper">
-          <span />
-          <span />
-          <span />
-          <span />
+    <div className="intro-container viewer-loading-container">
+      <div className="intro-visual viewer-intro-visual" aria-hidden="true">
+        <div className="intro-scroll-shadow" />
+        <div className="intro-roller intro-roller-top"><i /><b /><i /></div>
+        <div className="intro-paper">
+          <div className="intro-paper-fiber" />
+          <div className="intro-calligraphy" lang="ko">문장을 고르고 페이지를 맞추어 읽던 자리를 다시 펼칩니다. 잠시만 기다려 주세요. 두루마리가 열리면 마지막으로 읽던 위치에서 이어집니다.</div>
+          <div className="intro-seal">읽<br />기</div>
         </div>
-        <div className="viewer-loading-roller viewer-loading-roller-bottom"><i /><b /><i /></div>
+        <div className="intro-roller intro-roller-bottom"><i /><b /><i /></div>
+        <div className="intro-scroll-cord" />
       </div>
-    </div>
-    <div className="viewer-loading-copy">
-      <strong>{bookTitle}</strong>
-      <span>{status.message}</span>
-      {status.detail && <small>{status.detail}</small>}
-    </div>
-    <div className="viewer-loading-progress" aria-label={`로딩 ${Math.round(safeProgress)}%`}>
-      <i style={{ width: `${safeProgress}%` }} />
+
+      <div className="intro-brand viewer-loading-brand">
+        <h1 className="intro-title">뷰 어 준 비</h1>
+        <p className="intro-subtitle">{bookTitle}</p>
+      </div>
+
+      <div className="intro-loading viewer-loading-status">
+        <div className="intro-progress-bar" aria-label={`로딩 ${Math.round(safeProgress)}%`}>
+          <div className="intro-progress-fill" style={{ width: `${safeProgress}%` }} />
+        </div>
+        <div className="intro-status-text">{status.message}</div>
+        {status.detail && <div className="viewer-loading-detail">{status.detail}</div>}
+      </div>
     </div>
   </div>;
 }
@@ -1261,8 +1323,8 @@ function AddSourceModal({ pending, path, name, loading, onName, onBrowse, onClos
     <div className="dialog-title"><b>➕ 도서 폴더 추가</b><button onClick={onClose}>✕</button></div>
     
     <div className="source-type-tabs" style={{ display: "flex", gap: "10px", marginBottom: "15px" }}>
-      <button className={`wpf-button ${tab === "local" ? "selected" : ""}`} onClick={() => setTab("local")} style={{ flex: 1, backgroundColor: tab === "local" ? "var(--accent)" : "", color: tab === "local" ? "#fff" : "" }}>💻 로컬 폴더</button>
-      <button className={`wpf-button ${tab === "gdrive" ? "selected" : ""}`} onClick={() => setTab("gdrive")} style={{ flex: 1, backgroundColor: tab === "gdrive" ? "var(--accent)" : "", color: tab === "gdrive" ? "#fff" : "" }}>☁️ 구글 드라이브</button>
+      <button className={`wpf-button ${tab === "local" ? "selected" : ""}`} onClick={() => setTab("local")} style={{ flex: 1, backgroundColor: tab === "local" ? "var(--accent)" : "", color: tab === "local" ? "var(--accent-on)" : "" }}>💻 로컬 폴더</button>
+      <button className={`wpf-button ${tab === "gdrive" ? "selected" : ""}`} onClick={() => setTab("gdrive")} style={{ flex: 1, backgroundColor: tab === "gdrive" ? "var(--accent)" : "", color: tab === "gdrive" ? "var(--accent-on)" : "" }}>☁️ 구글 드라이브</button>
     </div>
 
     {tab === "local" ? (
