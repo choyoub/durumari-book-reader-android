@@ -1248,7 +1248,7 @@ function LibraryView({ tab, setTab, search, setSearch, books, sources, activeSou
                 onClick={() => onSelectSource(src.id)}
                 title={src.path}
               >
-                💻 {src.name}
+                {src.name}
                 <button
                   className="source-tab-remove"
                   title="폴더 제거"
@@ -1291,7 +1291,7 @@ function LibraryView({ tab, setTab, search, setSearch, books, sources, activeSou
               </tr>
             </thead>
             <tbody>
-              {sortedHistory.map((item) => <tr className="openable-row" key={item.id} onClick={() => onOpenHistory(item.id)}><td>💻 {getSourceName(item.id)}</td><td>{item.name}</td><td>{formatDate(item.openedAt)}</td><td className="accent-text">{Math.round(item.progress * 100)}%</td></tr>)}
+              {sortedHistory.map((item) => <tr className="openable-row" key={item.id} onClick={() => onOpenHistory(item.id)}><td>{getSourceName(item.id)}</td><td>{item.name}</td><td>{formatDate(item.openedAt)}</td><td className="accent-text">{Math.round(item.progress * 100)}%</td></tr>)}
             </tbody>
           </table>
         </div>
@@ -1308,7 +1308,7 @@ function LibraryView({ tab, setTab, search, setSearch, books, sources, activeSou
               </tr>
             </thead>
             <tbody>
-              {sortedBookmarks.map((item) => <tr className="openable-row" key={`${item.bookId}-${item.createdAt}`} onClick={() => onOpenHistory(item.bookId, item.progress, item.cfi)}><td>💻 {getSourceName(item.bookId)}</td><td>{item.bookTitle}</td><td>{formatDate(item.createdAt)}</td><td className="accent-text">p.{item.page}</td></tr>)}
+              {sortedBookmarks.map((item) => <tr className="openable-row" key={`${item.bookId}-${item.createdAt}`} onClick={() => onOpenHistory(item.bookId, item.progress, item.cfi)}><td>{getSourceName(item.bookId)}</td><td>{item.bookTitle}</td><td>{formatDate(item.createdAt)}</td><td className="accent-text">p.{item.page}</td></tr>)}
             </tbody>
           </table>
         </div>
