@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReaderSettings } from "../types";
 import { loadPagination, savePagination } from "../lib/libraryStore";
+import { paginateStarts, type PaginationInput } from "../lib/pagination";
+
+const PAGINATION_WORKER_TIMEOUT_MS = 30_000;
 
 interface Props {
   text: string;
@@ -10,63 +13,6 @@ interface Props {
   onProgress: (progress: number) => void;
   navRef: React.MutableRefObject<{ next: () => void | Promise<void>; previous: () => void | Promise<void>; go: (p: number) => void | Promise<void> } | null>;
   onPageInfo: (current: number, total: number, indexing: boolean) => void;
-}
-
-interface PaginationInput {
-  text: string;
-  width: number;
-  height: number;
-  fontSize: number;
-  lineHeight: number;
-  letterSpacing: number;
-  bold: boolean;
-}
-
-function glyphWidth(code: number, fontSize: number, letterSpacing: number, bold: boolean) {
-  let ratio = 1;
-  if (code === 32 || code === 9) ratio = code === 9 ? 1.32 : .33;
-  else if (code < 128) {
-    if ((code >= 65 && code <= 90) || (code >= 48 && code <= 57)) ratio = .6;
-    else if (code >= 97 && code <= 122) ratio = .53;
-    else ratio = .42;
-  } else if (code >= 0x2000 && code <= 0x206f) ratio = .5;
-  return fontSize * ratio * (bold ? 1.035 : 1) + letterSpacing;
-}
-
-async function paginateInline(data: PaginationInput, isDisposed: () => boolean) {
-  const lineLimit = Math.max(1, data.width);
-  const maxLines = Math.max(1, Math.floor(data.height / Math.max(1, data.fontSize * data.lineHeight)));
-  const starts: number[] = [0];
-  let line = 0;
-  let lineWidth = 0;
-
-  for (let index = 0; index < data.text.length; index++) {
-    if (isDisposed()) return null;
-    if (index > 0 && index % 50_000 === 0) await new Promise(resolve => setTimeout(resolve, 0));
-    const code = data.text.charCodeAt(index);
-    if (code === 13) continue;
-    if (code === 10) {
-      line++;
-      lineWidth = 0;
-      if (line >= maxLines && index + 1 < data.text.length) {
-        starts.push(index + 1);
-        line = 0;
-      }
-      continue;
-    }
-    const width = glyphWidth(code, data.fontSize, data.letterSpacing, data.bold);
-    if (lineWidth > 0 && lineWidth + width > lineLimit) {
-      line++;
-      lineWidth = 0;
-      if (line >= maxLines) {
-        starts.push(index);
-        line = 0;
-      }
-    }
-    lineWidth += width;
-  }
-  if (starts[starts.length - 1] !== data.text.length) starts.push(data.text.length);
-  return Int32Array.from(starts);
 }
 
 export function TextReader({ text, cacheKey, settings, initialProgress, onProgress, navRef, onPageInfo }: Props) {
@@ -98,7 +44,16 @@ export function TextReader({ text, cacheKey, settings, initialProgress, onProgre
     if (!text || size.width <= 0 || size.height <= 0) return;
     let disposed = false;
     let worker: Worker | null = null;
+    let workerTimeout: number | null = null;
     setStarts(null);
+    const stopWorker = () => {
+      if (workerTimeout !== null) {
+        window.clearTimeout(workerTimeout);
+        workerTimeout = null;
+      }
+      worker?.terminate();
+      worker = null;
+    };
     const apply = (result: Int32Array) => {
       if (disposed || result.length < 2 || result[result.length - 1] !== text.length) return;
       const total = result.length - 1;
@@ -110,7 +65,7 @@ export function TextReader({ text, cacheKey, settings, initialProgress, onProgre
       lineHeight: settings.lineHeight, letterSpacing: settings.letterSpacing, bold: settings.isBold
     };
     const generateInline = () => {
-      void paginateInline(input, () => disposed).then((result) => {
+      void paginateStarts(input, () => disposed).then((result) => {
         if (!result || disposed) return;
         apply(result);
         void savePagination(signature, result);
@@ -122,17 +77,19 @@ export function TextReader({ text, cacheKey, settings, initialProgress, onProgre
         return;
       }
       worker = new Worker(new URL("../workers/paginationWorker.ts", import.meta.url), { type: "module" });
+      workerTimeout = window.setTimeout(() => {
+        stopWorker();
+        if (!disposed) generateInline();
+      }, PAGINATION_WORKER_TIMEOUT_MS);
       worker.onmessage = ({ data }: MessageEvent<Int32Array>) => {
         const result = data instanceof Int32Array ? data : new Int32Array(data);
         apply(result);
         void savePagination(signature, result);
-        worker?.terminate();
-        worker = null;
+        stopWorker();
       };
       worker.onerror = () => {
-        worker?.terminate();
-        worker = null;
-        generateInline();
+        stopWorker();
+        if (!disposed) generateInline();
       };
       worker.postMessage(input);
     };
@@ -144,7 +101,7 @@ export function TextReader({ text, cacheKey, settings, initialProgress, onProgre
       }
       generate();
     }).catch(generate);
-    return () => { disposed = true; worker?.terminate(); };
+    return () => { disposed = true; stopWorker(); };
   }, [contentHeight, contentWidth, settings.fontSize, settings.isBold, settings.letterSpacing,
       settings.lineHeight, signature, size.height, size.width, text]);
 

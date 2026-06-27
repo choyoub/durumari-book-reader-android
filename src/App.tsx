@@ -95,7 +95,10 @@ function useSwipeGesture(
 
 function playPageTurnSound() {
   try {
-    const audio = new Audio(turnSoundFile);
+    const audio = pageTurnAudio ?? new Audio(turnSoundFile);
+    pageTurnAudio = audio;
+    audio.pause();
+    audio.currentTime = 0;
     // 재생 속도를 2배로 높여 소리 길이를 압축하고 빠르게 끝마치도록 합니다.
     audio.playbackRate = 2.0;
     audio.play().catch(e => console.error("Audio play failed:", e));
@@ -130,6 +133,30 @@ const READER_FONTS = [
 
 type Tab = "library" | "history" | "bookmarks";
 interface BookmarkItem { bookId: string; bookTitle: string; progress: number; cfi?: string; page: number; preview: string; createdAt: number; }
+
+const SORT_COLLATOR = new Intl.Collator("ko", { numeric: true });
+const PROGRESS_SAVE_INTERVAL_MS = 700;
+let pageTurnAudio: HTMLAudioElement | null = null;
+
+function nextSortDirection(currentColumn: string, currentDirection: SortConfig["direction"], column: string): SortConfig["direction"] {
+  if (currentColumn !== column || currentDirection === "none") return "asc";
+  return currentDirection === "asc" ? "desc" : "asc";
+}
+
+function compareSortValues(a: unknown, b: unknown, direction: SortConfig["direction"]) {
+  if (typeof a === "string" || typeof b === "string") {
+    const result = SORT_COLLATOR.compare(String(a ?? ""), String(b ?? ""));
+    return direction === "asc" ? result : -result;
+  }
+  if (a === b) return 0;
+  const result = (a ?? "") > (b ?? "") ? 1 : -1;
+  return direction === "asc" ? result : -result;
+}
+
+function sortedBy<T>(items: T[], sort: SortConfig, valueOf: (item: T, column: string) => unknown) {
+  if (sort.direction === "none" || !sort.column) return items;
+  return [...items].sort((a, b) => compareSortValues(valueOf(a, sort.column), valueOf(b, sort.column), sort.direction));
+}
 
 
 const defaultSettings: ReaderSettings = {
@@ -190,6 +217,8 @@ export default function App() {
     }
   }, [sources, activeSourceId]);
   const [history, setHistory] = useState<HistoryItem[]>(() => loadJson("durumari.history", []));
+  const historyRef = useRef(history);
+  useEffect(() => { historyRef.current = history; }, [history]);
   const [bookmarks, setBookmarks] = useState<BookmarkItem[]>(() => loadJson("durumari.bookmarks", []));
   const [tab, setTab] = useState<Tab>("library");
   const [search, setSearch] = useState("");
@@ -200,6 +229,8 @@ export default function App() {
   useEffect(() => { bookRef.current = book; }, [book]);
   const [progress, setProgress] = useState(0);
   const [cfi, setCfi] = useState<string>();
+  const progressSaveTimerRef = useRef<number | null>(null);
+  const pendingProgressRef = useRef<{ id: string; name: string; kind: OpenedBook["kind"]; progress: number; cfi?: string } | null>(null);
   const [pageInfo, setPageInfo] = useState({ current: 1, total: 1, indexing: false });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [addSourceOpen, setAddSourceOpen] = useState(false);
@@ -275,22 +306,17 @@ export default function App() {
     frontFace.className = "clone-face front";
     virtualPage.appendChild(frontFace);
 
-    // [사전 준비] DOM 업데이트 전에 현재 화면(이전 페이지)을 복제본으로 덮어 씌우기
+    // [사전 준비] DOM 업데이트 전에 현재 화면(이전 화면)을 복제하여 무조건 최상단(zIndex:30)에 덮음
+    // 이렇게 하면 30ms 딜레이 동안 React가 area를 어떻게 조작하든 사용자 눈에는 전혀 보이지 않음!
+    virtualPage.style.zIndex = "30";
+    area.parentElement?.appendChild(virtualPage);
+
     if (settings.pageTurnStyle === "curl" && !isCurrentPageSlidingOut) {
-      virtualPage.style.zIndex = "10";
-      area.parentElement?.appendChild(virtualPage);
-      area.style.opacity = "0"; // 새 페이지 렌더링 동안 숨김
+      area.style.opacity = "0"; 
     } else if (settings.pageTurnStyle === "slide" && !isCurrentPageSlidingOut) {
-      virtualPage.style.zIndex = "10";
-      area.parentElement?.appendChild(virtualPage);
       area.style.position = "relative";
-      area.style.zIndex = "20";
       const transformStart = origin === "bottom" ? "translateY(100%)" : "translateX(100%)";
-      area.style.transform = transformStart; // 새 페이지가 화면 밖에서 렌더링 되도록 함
-    } else if (isCurrentPageSlidingOut) {
-      // 이전 페이지 처리: 실제 화면이 렌더링 되기 전에 현재 화면(virtualPage)으로 덮어서 가림
-      virtualPage.style.zIndex = "30";
-      area.parentElement?.appendChild(virtualPage);
+      area.style.transform = transformStart;
     }
 
     const cleanup = () => {
@@ -313,13 +339,14 @@ export default function App() {
         let myFrontFace = frontFace;
 
         if (isNextPage) {
+          virtualPage.style.zIndex = "10"; // 이전 화면은 밑으로 뺌
           oldPageBg = virtualPage;
           
           flyingPage = document.createElement("div");
           flyingPage.className = "virtual-page-layer";
           myFrontFace = area.cloneNode(true) as HTMLDivElement; // DOM 업데이트 완료 후 새 페이지 복제!
-          myFrontFace.style.opacity = "1"; // 원본(area)의 opacity:0 을 상속받았으므로 1로 복구!
-          myFrontFace.style.backgroundColor = "var(--bg)"; // 책장 레이어 배경 불투명하게 처리
+          myFrontFace.style.opacity = "1";
+          myFrontFace.style.backgroundColor = "var(--bg)";
           myFrontFace.className = "clone-face front";
           flyingPage.appendChild(myFrontFace);
         }
@@ -390,9 +417,9 @@ export default function App() {
         });
       } else {
         if (isCurrentPageSlidingOut) {
-          // virtualPage는 사전 준비 단계에서 이미 30번대 zIndex로 덮여있음
+          virtualPage.style.zIndex = "30"; // 이전 화면 날아감
           area.style.position = "relative";
-          area.style.zIndex = "10";
+          area.style.zIndex = "10"; // 새 화면은 밑에서 대기
           
           let transformEnd = "translateX(100%)"; // Previous Page: Slide OUT to Right
           if (origin === "top") transformEnd = "translateY(100%)"; // Slide OUT to Bottom
@@ -405,6 +432,8 @@ export default function App() {
           pageTurnAnimationRef.current = anim;
           void anim.finished.then(cleanup).catch(cleanup);
         } else {
+          virtualPage.style.zIndex = "10"; // 이전 화면은 밑으로 뺌
+          area.style.zIndex = "20"; // 새 화면이 위로 올라와서 애니메이션 탑승
           const transformStart = origin === "bottom" ? "translateY(100%)" : "translateX(100%)";
 
           const anim = area.animate([
@@ -525,7 +554,8 @@ export default function App() {
       const newSource: FolderSource = { id: newSourceId, name: sourceName || "내 도서", kind: "local", path: selectedPath, handle: selectedHandle };
       
       const taggedBooks = scannedBooks.map(b => ({ ...b, sourceId: newSourceId }));
-      setBooks((items) => [...taggedBooks, ...items.filter((item) => !taggedBooks.some((next) => next.id === item.id))]);
+      const taggedBookIds = new Set(taggedBooks.map((item) => item.id));
+      setBooks((items) => [...taggedBooks, ...items.filter((item) => !taggedBookIds.has(item.id))]);
       skipNextSourceSyncRef.current = true;
       setSources((prev) => [...prev, newSource]);
       setActiveSourceId(newSourceId);
@@ -564,27 +594,28 @@ export default function App() {
           
           setBooks((currentBooks) => {
             const existingForSource = currentBooks.filter(b => b.sourceId === source.id);
-            const newBooks = tagged.filter(nb => !existingForSource.some(eb => eb.id === nb.id));
-            const deletedBooks = existingForSource.filter(eb => !tagged.some(nb => nb.id === eb.id));
+            const existingIds = new Set(existingForSource.map((book) => book.id));
+            const taggedIds = new Set(tagged.map((book) => book.id));
+            const newBooks = tagged.filter(nb => !existingIds.has(nb.id));
+            const deletedBooks = existingForSource.filter(eb => !taggedIds.has(eb.id));
             
             if (newBooks.length === 0 && deletedBooks.length === 0) return currentBooks;
             
-            let next = [...currentBooks];
-            for (const nb of newBooks) next.push(nb);
-            next = next.filter(b => !deletedBooks.some(db => db.id === b.id));
+            const deletedIds = deletedBooks.map(d => d.id);
+            const deletedIdSet = new Set(deletedIds);
+            const next = [...currentBooks.filter(b => !deletedIdSet.has(b.id)), ...newBooks];
             
             void saveLibraryBooks(newBooks);
-            void deleteLibraryBooks(deletedBooks.map(d => d.id));
+            void deleteLibraryBooks(deletedIds);
             
             if (deletedBooks.length > 0) {
-              const deletedIds = deletedBooks.map(d => d.id);
               setHistory(prev => {
-                const updated = prev.filter(h => !deletedIds.includes(h.id));
+                const updated = prev.filter(h => !deletedIdSet.has(h.id));
                 if (updated.length !== prev.length) localStorage.setItem("durumari.history", JSON.stringify(updated));
                 return updated;
               });
               setBookmarks(prev => {
-                const updated = prev.filter(b => !deletedIds.includes(b.bookId));
+                const updated = prev.filter(b => !deletedIdSet.has(b.bookId));
                 if (updated.length !== prev.length) localStorage.setItem("durumari.bookmarks", JSON.stringify(updated));
                 return updated;
               });
@@ -663,7 +694,18 @@ export default function App() {
     if (!confirmed) return;
     const booksToDelete = books.filter(b => (b as OpenedBook & { sourceId?: string }).sourceId === sourceId);
     const idsToDelete = booksToDelete.map(b => b.id);
+    const idSetToDelete = new Set(idsToDelete);
     setBooks(prev => prev.filter(b => (b as OpenedBook & { sourceId?: string }).sourceId !== sourceId));
+    setHistory(prev => {
+      const next = prev.filter(item => !idSetToDelete.has(item.id));
+      if (next.length !== prev.length) localStorage.setItem("durumari.history", JSON.stringify(next));
+      return next;
+    });
+    setBookmarks(prev => {
+      const next = prev.filter(item => !idSetToDelete.has(item.bookId));
+      if (next.length !== prev.length) localStorage.setItem("durumari.bookmarks", JSON.stringify(next));
+      return next;
+    });
     setSources(prev => {
       const next = prev.filter(s => s.id !== sourceId);
       setActiveSourceId(next.length ? next[0].id : "");
@@ -758,15 +800,51 @@ export default function App() {
     void openBook(target, targetProgress, targetCfi);
   }, [books, openBook]);
 
+  const flushProgress = useCallback(() => {
+    if (progressSaveTimerRef.current !== null) {
+      window.clearTimeout(progressSaveTimerRef.current);
+      progressSaveTimerRef.current = null;
+    }
+    const pending = pendingProgressRef.current;
+    if (!pending) return;
+    pendingProgressRef.current = null;
+    localStorage.setItem(`durumari.position.${pending.id}`, JSON.stringify({ progress: pending.progress, cfi: pending.cfi }));
+    const openedAt = Date.now();
+    const items = historyRef.current;
+    const existing = items.find((item) => item.id === pending.id);
+    const updated = existing
+      ? items.map((item) => item.id === pending.id ? { ...item, progress: pending.progress, openedAt } : item)
+      : [{ id: pending.id, name: pending.name, kind: pending.kind, progress: pending.progress, openedAt }, ...items].slice(0, 100);
+    historyRef.current = updated;
+    localStorage.setItem("durumari.history", JSON.stringify(updated));
+    setHistory(updated);
+  }, []);
+
   const updateProgress = useCallback((next: number, nextCfi?: string) => {
     setProgress(next); if (nextCfi) setCfi(nextCfi);
     if (!book) return;
-    localStorage.setItem(`durumari.position.${book.id}`, JSON.stringify({ progress: next, cfi: nextCfi ?? cfi }));
-    setHistory((items) => {
-      const updated = items.map((item) => item.id === book.id ? { ...item, progress: next, openedAt: Date.now() } : item);
-      localStorage.setItem("durumari.history", JSON.stringify(updated)); return updated;
-    });
-  }, [book, cfi]);
+    pendingProgressRef.current = { id: book.id, name: book.name, kind: book.kind, progress: next, cfi: nextCfi ?? cfi };
+    if (progressSaveTimerRef.current === null) {
+      progressSaveTimerRef.current = window.setTimeout(flushProgress, PROGRESS_SAVE_INTERVAL_MS);
+    }
+  }, [book, cfi, flushProgress]);
+
+  useEffect(() => {
+    const flushWhenHidden = () => {
+      if (document.visibilityState === "hidden") flushProgress();
+    };
+    window.addEventListener("beforeunload", flushProgress);
+    document.addEventListener("visibilitychange", flushWhenHidden);
+    return () => {
+      window.removeEventListener("beforeunload", flushProgress);
+      document.removeEventListener("visibilitychange", flushWhenHidden);
+      flushProgress();
+    };
+  }, [flushProgress]);
+
+  useEffect(() => {
+    if (!book) flushProgress();
+  }, [book, flushProgress]);
 
   const setInfo = useCallback((current: number, total: number, indexing: boolean) => setPageInfo({ current, total, indexing }), []);
   const handleReaderError = useCallback((cause: unknown) => {
@@ -958,27 +1036,22 @@ function LibraryView({ tab, setTab, search, setSearch, books, sources, activeSou
   const bookmarksSort = settings.bookmarksSort || { column: "createdAt", direction: "desc" };
 
   const handleHeaderClick = (tabName: Tab, column: string) => {
-    const getNextDirection = (currentCol: string, currentDir: "asc" | "desc" | "none") => {
-      if (currentCol !== column || currentDir === "none") return "asc";
-      return currentDir === "asc" ? "desc" : "asc";
-    };
-
     if (tabName === "library") {
       setSettings((prev) => {
         const current = prev.librarySort || { column: "openedAt", direction: "desc" };
-        const nextDir = getNextDirection(current.column, current.direction);
+        const nextDir = nextSortDirection(current.column, current.direction, column);
         return { ...prev, librarySort: { column, direction: nextDir } };
       });
     } else if (tabName === "history") {
       setSettings((prev) => {
         const current = prev.historySort || { column: "openedAt", direction: "desc" };
-        const nextDir = getNextDirection(current.column, current.direction);
+        const nextDir = nextSortDirection(current.column, current.direction, column);
         return { ...prev, historySort: { column, direction: nextDir } };
       });
     } else if (tabName === "bookmarks") {
       setSettings((prev) => {
         const current = prev.bookmarksSort || { column: "createdAt", direction: "desc" };
-        const nextDir = getNextDirection(current.column, current.direction);
+        const nextDir = nextSortDirection(current.column, current.direction, column);
         return { ...prev, bookmarksSort: { column, direction: nextDir } };
       });
     }
@@ -991,104 +1064,51 @@ function LibraryView({ tab, setTab, search, setSearch, books, sources, activeSou
     return "";
   };
 
+  const historyById = useMemo(() => new Map(history.map((item) => [item.id, item])), [history]);
+  const bookById = useMemo(() => new Map(books.map((item) => [item.id, item])), [books]);
+  const sourceNameById = useMemo(() => new Map(sources.map((item) => [item.id, item.name])), [sources]);
+  const sourceNameByBookId = useMemo(() => new Map(books.map((item) => [
+    item.id,
+    sourceNameById.get((item as OpenedBook & { sourceId?: string }).sourceId ?? ""),
+  ])), [books, sourceNameById]);
+
   const readingStatus = (bookId: string) => {
-    const record = history.find((item) => item.id === bookId);
+    const record = historyById.get(bookId);
     if (!record) return { label: "미독", className: "status-unread" };
     if (record.progress >= .999) return { label: "완독", className: "status-completed" };
     return { label: "읽는 중", className: "status-reading" };
   };
 
   const sortedBooks = useMemo(() => {
-    if (librarySort.direction === "none" || !librarySort.column) return books;
-    const next = [...books];
-    next.sort((a, b) => {
-      let valA: any = a[librarySort.column as keyof OpenedBook] || "";
-      let valB: any = b[librarySort.column as keyof OpenedBook] || "";
-
-      if (librarySort.column === "status") {
-        const statusVal = (item: OpenedBook) => {
-          const record = history.find((h) => h.id === item.id);
-          if (!record) return 0;
-          if (record.progress >= .999) return 2;
-          return 1;
-        };
-        valA = statusVal(a);
-        valB = statusVal(b);
-      }
-
-      if (typeof valA === "string") {
-        return librarySort.direction === "asc"
-          ? valA.localeCompare(valB, "ko", { numeric: true })
-          : valB.localeCompare(valA, "ko", { numeric: true });
-      } else {
-        if (valA === valB) return 0;
-        return librarySort.direction === "asc"
-          ? (valA > valB ? 1 : -1)
-          : (valA < valB ? 1 : -1);
-      }
+    return sortedBy(books, librarySort, (item, column) => {
+      if (column !== "status") return item[column as keyof OpenedBook] || "";
+      const record = historyById.get(item.id);
+      if (!record) return 0;
+      return record.progress >= .999 ? 2 : 1;
     });
-    return next;
-  }, [books, librarySort, history]);
+  }, [books, librarySort, historyById]);
 
   const getSourceName = useCallback((bookId: string) => {
-    const book = books.find(b => b.id === bookId);
+    const book = bookById.get(bookId);
     if (!book) return "내 도서";
-    const source = sources.find(s => s.id === (book as any).sourceId);
-    return source ? source.name : "내 도서";
-  }, [books, sources]);
+    const sourceName = sourceNameByBookId.get(bookId);
+    return sourceName || "내 도서";
+  }, [bookById, sourceNameByBookId]);
 
-  const validHistory = useMemo(() => history.filter(h => books.some(b => b.id === h.id)), [history, books]);
+  const validHistory = useMemo(() => history.filter(h => bookById.has(h.id)), [history, bookById]);
   const sortedHistory = useMemo(() => {
-    if (historySort.direction === "none" || !historySort.column) return validHistory;
-    const next = [...validHistory];
-    next.sort((a, b) => {
-      let valA: any = a[historySort.column as keyof HistoryItem] || "";
-      let valB: any = b[historySort.column as keyof HistoryItem] || "";
-
-      if (historySort.column === "folder") {
-        valA = getSourceName(a.id);
-        valB = getSourceName(b.id);
-      }
-
-      if (typeof valA === "string") {
-        return historySort.direction === "asc"
-          ? valA.localeCompare(valB, "ko", { numeric: true })
-          : valB.localeCompare(valA, "ko", { numeric: true });
-      } else {
-        if (valA === valB) return 0;
-        return historySort.direction === "asc"
-          ? (valA > valB ? 1 : -1)
-          : (valA < valB ? 1 : -1);
-      }
+    return sortedBy(validHistory, historySort, (item, column) => {
+      if (column === "folder") return getSourceName(item.id);
+      return item[column as keyof HistoryItem] || "";
     });
-    return next;
   }, [validHistory, historySort, getSourceName]);
 
-  const validBookmarks = useMemo(() => bookmarks.filter(bm => books.some(b => b.id === bm.bookId)), [bookmarks, books]);
+  const validBookmarks = useMemo(() => bookmarks.filter(bm => bookById.has(bm.bookId)), [bookmarks, bookById]);
   const sortedBookmarks = useMemo(() => {
-    if (bookmarksSort.direction === "none" || !bookmarksSort.column) return validBookmarks;
-    const next = [...validBookmarks];
-    next.sort((a, b) => {
-      let valA: any = a[bookmarksSort.column as keyof BookmarkItem] || "";
-      let valB: any = b[bookmarksSort.column as keyof BookmarkItem] || "";
-
-      if (bookmarksSort.column === "folder") {
-        valA = getSourceName(a.bookId);
-        valB = getSourceName(b.bookId);
-      }
-
-      if (typeof valA === "string") {
-        return bookmarksSort.direction === "asc"
-          ? valA.localeCompare(valB, "ko", { numeric: true })
-          : valB.localeCompare(valA, "ko", { numeric: true });
-      } else {
-        if (valA === valB) return 0;
-        return bookmarksSort.direction === "asc"
-          ? (valA > valB ? 1 : -1)
-          : (valA < valB ? 1 : -1);
-      }
+    return sortedBy(validBookmarks, bookmarksSort, (item, column) => {
+      if (column === "folder") return getSourceName(item.bookId);
+      return item[column as keyof BookmarkItem] || "";
     });
-    return next;
   }, [validBookmarks, bookmarksSort, getSourceName]);
 
   return <section className="library-view" {...tabSwipeHandlers}>

@@ -2,6 +2,8 @@ import type { BookKind, OpenedBook } from "../types";
 import JSZip from "jszip";
 
 const supported = ["epub", "txt", "zip"] as const;
+const NATIVE_REQUEST_TIMEOUT_MS = 60_000;
+const TEXT_WORKER_TIMEOUT_MS = 60_000;
 
 type AndroidDirectoryHandle = {
   kind: "android-saf-directory";
@@ -12,21 +14,35 @@ function isAndroidDirectoryHandle(handle: any): handle is AndroidDirectoryHandle
   return handle?.kind === "android-saf-directory" && typeof handle.directoryUri === "string";
 }
 
-function nativeRequest<T>(type: string, responseType: string, payload: Record<string, unknown> = {}): Promise<T> {
+function nativeRequest<T>(type: string, responseType: string, payload: Record<string, unknown> = {}, timeoutMs = NATIVE_REQUEST_TIMEOUT_MS): Promise<T> {
   return new Promise((resolve, reject) => {
+    if (!(window as any).ReactNativeWebView) {
+      reject(new Error("ReactNativeWebView is not available."));
+      return;
+    }
     const requestId = `${type}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    let timeout = 0;
+    const cleanup = () => {
+      window.clearTimeout(timeout);
+      window.removeEventListener("message", listener);
+      document.removeEventListener("message", listener as EventListener);
+    };
     const listener = (event: MessageEvent) => {
       try {
         const data = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
         if (data?.type !== responseType || data?.requestId !== requestId) return;
-        window.removeEventListener("message", listener);
-        document.removeEventListener("message", listener as EventListener);
+        cleanup();
         if (data.error) reject(new Error(data.error));
         else resolve(data as T);
       } catch {
         // 다른 WebView 메시지는 무시한다.
       }
     };
+
+    timeout = window.setTimeout(() => {
+      cleanup();
+      reject(new Error(`${type} request timed out.`));
+    }, timeoutMs);
 
     window.addEventListener("message", listener);
     document.addEventListener("message", listener as EventListener);
@@ -90,12 +106,24 @@ function processText(name: string, kind: "txt" | "zip", bytes: Uint8Array): Prom
   if ((window as any).ReactNativeWebView) return processTextInline(kind, bytes);
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL("../workers/textWorker.ts", import.meta.url), { type: "module" });
-    worker.onmessage = ({ data }) => {
+    let settled = false;
+    const timeout = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error("Text worker timed out."));
+    }, TEXT_WORKER_TIMEOUT_MS);
+    const cleanup = () => {
+      settled = true;
+      window.clearTimeout(timeout);
       worker.terminate();
+    };
+    worker.onmessage = ({ data }) => {
+      cleanup();
       data.error ? reject(new Error(data.error)) : resolve(data.text);
     };
     worker.onerror = (event) => {
-      worker.terminate();
+      cleanup();
       reject(new Error(event.message || "텍스트 처리 Worker를 시작하지 못했습니다."));
     };
     worker.postMessage({ name, kind, bytes }, [bytes.buffer]);

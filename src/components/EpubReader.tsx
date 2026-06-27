@@ -21,6 +21,7 @@ export function EpubReader({ bytes, settings, initialCfi, initialProgress = 0, o
 
   useEffect(() => {
     if (!host.current) return;
+    let disposed = false;
     let book: Book;
     let rendition: Rendition;
     try {
@@ -36,8 +37,16 @@ export function EpubReader({ bytes, settings, initialCfi, initialProgress = 0, o
     bookRef.current = book;
     renditionRef.current = rendition;
     let userNavigated = false;
-    const next = () => { userNavigated = true; return rendition.next(); };
-    const previous = () => { userNavigated = true; return rendition.prev(); };
+    const next = () => {
+      if (disposed) return Promise.resolve();
+      userNavigated = true;
+      return rendition.next();
+    };
+    const previous = () => {
+      if (disposed) return Promise.resolve();
+      userNavigated = true;
+      return rendition.prev();
+    };
     rendition.themes.register("reader-fonts", "/fonts/fonts.css");
     rendition.themes.select("reader-fonts");
     rendition.themes.default({
@@ -61,6 +70,7 @@ export function EpubReader({ bytes, settings, initialCfi, initialProgress = 0, o
     onPageInfo(1, 1, true);
 
     const relocated = (location: { start: { cfi: string; percentage?: number; index?: number; displayed?: { page: number; total: number } }; atEnd?: boolean }) => {
+      if (disposed) return;
       const cfi = location.start.cfi;
       const locations = book.locations;
       const total = locations.length();
@@ -87,32 +97,41 @@ export function EpubReader({ bytes, settings, initialCfi, initialProgress = 0, o
     });
 
     void book.ready.then(async () => {
+      if (disposed) return;
       if (initialCfi) {
         try { await rendition.display(initialCfi); }
         catch { await rendition.display(); }
       } else if (initialProgress <= 0) {
         await rendition.display();
       }
+      if (disposed) return;
       if (!userNavigated && !initialCfi && initialProgress > 0) {
         await book.locations.generate(1600);
+        if (disposed) return;
         const target = book.locations.cfiFromPercentage(Math.max(0, Math.min(1, initialProgress)));
         if (target) await rendition.display(target); else await rendition.display();
       }
+      if (disposed) return;
       const location = rendition.currentLocation() as unknown as { start?: { cfi?: string } };
       if (location?.start?.cfi) relocated({ start: { cfi: location.start.cfi } });
-    }).catch(onError);
+    }).catch((error) => {
+      if (!disposed) onError(error);
+    });
     navRef.current = {
       next: async () => { await next(); },
       previous: async () => { await previous(); },
       go: async (progress) => {
+        if (disposed) return;
         userNavigated = true;
         if (!book.locations.length()) await book.locations.generate(1600);
+        if (disposed) return;
         const cfi = book.locations.cfiFromPercentage(Math.max(0, Math.min(1, progress)));
         if (cfi) await rendition.display(cfi);
       }
     };
 
     return () => {
+      disposed = true;
       navRef.current = null;
       rendition.destroy();
       book.destroy();
